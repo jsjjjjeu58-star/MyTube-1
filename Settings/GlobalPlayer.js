@@ -47,7 +47,6 @@ export default function GlobalPlayer() {
 
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
-  // [FIX]: অফলাইন ফাইল সবসময় Combined/Muxed মোডে প্লে হবে
   const checkIsMuxed = () => {
       if (isLocalRef.current) return true; 
       global.appSettings = global.appSettings || {};
@@ -297,7 +296,7 @@ export default function GlobalPlayer() {
       pan.setValue({ x: 0, y: 0 });
 
       if (isLocalRef.current) {
-          setStreamMode('combined'); // অফলাইন ভিডিওর জন্য
+          setStreamMode('combined'); 
           setStreamUrl(data.videoData.localUri);
           setAudioStreamUrl(data.videoData.localUri);
           return;
@@ -365,7 +364,6 @@ export default function GlobalPlayer() {
   const isCurrentlyMuxed = checkIsMuxed();
   const shouldVideoPlay = isPlaying && (!isAudioMode || isCurrentlyMuxed);
 
-  // [FIX]: অফলাইন অডিওর জন্য ভিডিও ভিউ হাইড করা হবে না, যাতে কন্ট্রোল প্যানেল কাজ করে
   const hideVideo = isAudioMode && !isLocalRef.current;
   const showCustomPoster = isAudioMode && !isLocalRef.current;
 
@@ -393,13 +391,10 @@ export default function GlobalPlayer() {
                       style={styles.video} 
                       shouldPlay={shouldVideoPlay} 
                       isMuted={streamMode === 'separate'} 
-
-                      // [FIX]: অফলাইন অডিওতেও কন্ট্রোল প্যানেল এবং পোস্টার দেখানো হবে
                       useNativeControls={isFull && (!isAudioMode || isLocalRef.current)} 
                       usePoster={isAudioMode && isLocalRef.current}
                       posterSource={{ uri: videoData?.thumbnail }}
                       posterStyle={{ resizeMode: 'cover' }}
-
                       resizeMode={isFull ? "contain" : "cover"} 
                       progressUpdateIntervalMillis={500}
                       onPlaybackStatusUpdate={handlePlaybackStatusUpdate} 
@@ -468,7 +463,7 @@ const styles = StyleSheet.create({
   videoCoreWrapper: { flex: 1, width: '100%', height: '100%' },
   hiddenVideoStyle: { position: 'absolute', opacity: 0, width: 1, height: 1, left: -9999 },
   video: { width: '100%', height: '100%' },
-  loadingBox: { flex: 1, justifyContent: 'center', alloadingBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   switchingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', zIndex: 30 },
   audioPosterContainer: { flex: 1, width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 10 },
   audioPosterBg: { width: '100%', height: '100%', resizeMode: 'cover' },
