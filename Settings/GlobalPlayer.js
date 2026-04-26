@@ -76,7 +76,9 @@ export default function GlobalPlayer() {
         if (currentCC) {
             const currentSec = status.positionMillis / 1000;
             const sub = currentCC.find(s => currentSec >= s.start && currentSec <= s.end);
-            setCcText(sub ? sub.text : "");
+            // সাবটাইটেল থাকলে দেখাবে, না থাকলে আগের টেক্সট ক্লিয়ার করবে না যদি লোডিং মেসেজ থাকে
+            if (sub) setCcText(sub.text);
+            else if (!ccText.includes("CC")) setCcText(""); 
         }
 
         if (streamMode === 'separate' && !isAudioMode) {
@@ -153,18 +155,27 @@ export default function GlobalPlayer() {
     return () => { playSub.remove(); toggleAudioSub.remove(); minSub.remove(); maxSub.remove(); qualitySub.remove(); };
   }, [streamMode]);
 
+  // [UPDATED]: ট্রান্সলেশন লোডিং মেসেজ এবং এরর হ্যান্ডেলিং
   const fetchCC = async (langCode) => {
     try {
+        setCcText("Loading CC..."); // লোডিং মেসেজ
+        setShowSettings(false);
+
         const res = await fetch(`${MY_API_SERVER}/api/subtitles?id=${currentVideoIdRef.current}&lang=${langCode}`);
         const json = await res.json();
+        
         if (json.success && json.subtitles.length > 0) {
             setCurrentCC(json.subtitles);
+            setCcText(`[${langCode.toUpperCase()}] CC Ready`);
+            setTimeout(() => setCcText(""), 2000);
         } else {
-            setCcText("Subtitle not available");
+            setCcText("CC not available for this video");
             setTimeout(() => setCcText(""), 3000);
         }
-        setShowSettings(false);
-    } catch(e) { setCcText(""); }
+    } catch(e) { 
+        setCcText("Failed to load CC");
+        setTimeout(() => setCcText(""), 3000);
+    }
   };
 
   const changeSpeed = async (speed) => {
@@ -193,7 +204,6 @@ export default function GlobalPlayer() {
 
   return (
      <Animated.View style={[isFull ? styles.fullContainer : styles.miniContainer, !isFull && { transform: pan.getTranslateTransform() }]} {...(isFull ? {} : panResponder.panHandlers)}>
-        {/* [FIX]: TouchableOpacity তে চাপ দিলে Player Screen এ ফিরে যাওয়ার লজিক */}
         <TouchableOpacity activeOpacity={0.9} disabled={isFull} style={{flex: 1}} onPress={() => {
             if (!isFull && videoData) {
                 navigation.navigate('Player', { videoId: currentVideoIdRef.current, videoData });
@@ -237,7 +247,6 @@ export default function GlobalPlayer() {
                 )}
 
                 {!isFull && (
-                    /* [FIX]: pointerEvents="box-none" দেওয়া হলো যাতে ফাঁকা জায়গায় চাপ দিলে TouchableOpacity কাজ করে */
                     <View style={styles.miniOverlay} pointerEvents="box-none">
                         <TouchableOpacity onPress={() => setIsPlaying(!isPlaying)} style={{marginRight: 15, padding: 10}}>
                             <Ionicons name={isPlaying ? "pause" : "play"} size={26} color="#FFF" />
