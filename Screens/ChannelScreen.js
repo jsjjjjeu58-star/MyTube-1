@@ -19,7 +19,7 @@ export default function ChannelScreen() {
 
   const [activeTab, setActiveTab] = useState('Videos');
   const [loading, setLoading] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false); // Pagination State
+  const [isLoadingMore, setIsLoadingMore] = useState(false); 
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLiveChannel, setIsLiveChannel] = useState(false); 
   const [liveVideoData, setLiveVideoData] = useState(null);
@@ -29,7 +29,6 @@ export default function ChannelScreen() {
 
   const [tabData, setTabData] = useState({ Videos: [], Shorts: [] });
   
-  // Pagination Tokens and API Key
   const [videoToken, setVideoToken] = useState(null);
   const [shortToken, setShortToken] = useState(null);
   const [apiKey, setApiKey] = useState(null);
@@ -53,10 +52,8 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // টোকেন এবং সঠিক থাম্বনেইল এক্সট্র্যাক্ট করার আপডেটেড ফাংশন
   const extractChannelDataRecursively = (node, categorizedData, tabType) => {
     
-    // YouTube-এর অরিজিনাল JSON থেকে সঠিক থাম্বনেইল বের করার হেল্পার ফাংশন
     const getThumbnail = (thumbnailsObject) => {
       if (thumbnailsObject && thumbnailsObject.thumbnails && thumbnailsObject.thumbnails.length > 0) {
         const thumbs = thumbnailsObject.thumbnails;
@@ -100,7 +97,6 @@ export default function ChannelScreen() {
       node.forEach(child => extractChannelDataRecursively(child, categorizedData, tabType));
     } else if (node !== null && typeof node === 'object') {
       
-      // Continuation Token খোঁজার লজিক
       if (node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
         categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
       }
@@ -176,7 +172,6 @@ export default function ChannelScreen() {
       const videosHtml = await videosRes.text();
       const shortsHtml = await shortsRes.text();
 
-      // Extract INNERTUBE_API_KEY for pagination
       const apiMatch = videosHtml.match(/"INNERTUBE_API_KEY":"(.*?)"/);
       if (apiMatch && apiMatch[1]) {
           setApiKey(apiMatch[1]);
@@ -245,11 +240,9 @@ export default function ChannelScreen() {
     }
   };
 
-  // পরবর্তী পেজের ভিডিও লোড করার ফাংশন
   const fetchMoreData = async () => {
     const currentToken = activeTab === 'Videos' ? videoToken : shortToken;
     
-    // যদি টোকেন না থাকে, অথবা আগে থেকেই লোড হচ্ছে, অথবা API key না থাকে, তাহলে রিটার্ন করবে
     if (!currentToken || isLoadingMore || !apiKey) return;
 
     setIsLoadingMore(true);
@@ -323,7 +316,11 @@ export default function ChannelScreen() {
     if (activeTab === 'Shorts') {
       return (
         <TouchableOpacity style={styles.shortGridItem} activeOpacity={0.8} onPress={() => navigation.navigate('ShortsScreen', { videoId: item.id, videoData: item })}>
-          <Image source={{ uri: item.thumbnail }} style={styles.shortGridImage} />
+          <Image 
+            source={{ uri: item.thumbnail }} 
+            style={styles.shortGridImage} 
+            onError={(e) => console.log("Shorts Image Load Error:", item.thumbnail, e.nativeEvent.error)}
+          />
           <View style={styles.shortViewsOverlay}>
             <Ionicons name="play-outline" size={14} color="#FFF" />
             <Text style={styles.shortViewsText}>{item.views}</Text>
@@ -338,7 +335,11 @@ export default function ChannelScreen() {
     return (
       <View style={styles.videoCard}>
         <TouchableOpacity style={styles.thumbnailContainer} activeOpacity={0.8} onPress={() => handleVideoPress(item)}>
-          <Image source={{ uri: item.thumbnail }} style={styles.thumbnailImage} />
+          <Image 
+            source={{ uri: item.thumbnail }} 
+            style={styles.thumbnailImage} 
+            onError={(e) => console.log("Video Image Load Error:", item.thumbnail, e.nativeEvent.error)}
+          />
           {item.duration ? <Text style={styles.durationBadge}>{item.duration}</Text> : null}
         </TouchableOpacity>
         <View style={styles.videoInfoContainer}>
@@ -377,13 +378,9 @@ export default function ChannelScreen() {
 
   const ChannelHeader = () => (
     <View>
-      <Image source={{ uri: channelAvatar }} style={styles.channelLogoLarge} />
-           {isLiveChannel && (
-             <View style={styles.liveBadge}>
-               <Text style={styles.liveBadgeText}>LIVE</Text>
-             </View>
-           )}
-        </TouchableOpacity> 
+      <Image source={{ uri: channelBanner }} style={styles.bannerImage} />
+      <View style={styles.channelProfileSection}>
+        <TouchableOpacity 
           style={styles.avatarWrapper} 
           activeOpacity={isLiveChannel ? 0.7 : 1} 
           onPress={() => {
@@ -393,12 +390,10 @@ export default function ChannelScreen() {
             }
           }}
         >
-           <Image 
-  source={{ uri: item.thumbnail }} 
-  style={styles.thumbnailImage} 
-  onError={(e) => console.log("Image Load Error:", item.thumbnail, e.nativeEvent.error)}
-/>
-Text>
+           <Image source={{ uri: channelAvatar }} style={styles.channelLogoLarge} />
+           {isLiveChannel && (
+             <View style={styles.liveBadge}>
+               <Text style={styles.liveBadgeText}>LIVE</Text>
              </View>
            )}
         </TouchableOpacity>
