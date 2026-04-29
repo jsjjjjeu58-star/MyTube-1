@@ -389,10 +389,12 @@ export default function ChannelScreen() {
             }
           }}
         >
-           <Image source={{ uri: channelAvatar }} style={styles.channelLogoLarge} />
-           {isLiveChannel && (
-             <View style={styles.liveBadge}>
-               <Text style={styles.liveBadgeText}>LIVE</Text>
+           <Image 
+  source={{ uri: item.thumbnail }} 
+  style={styles.thumbnailImage} 
+  onError={(e) => console.log("Image Load Error:", item.thumbnail, e.nativeEvent.error)}
+/>
+Text>
              </View>
            )}
         </TouchableOpacity>
