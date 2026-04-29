@@ -19,14 +19,20 @@ export default function ChannelScreen() {
 
   const [activeTab, setActiveTab] = useState('Videos');
   const [loading, setLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false); // নতুন ডেটা লোড হওয়ার স্টেট
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLiveChannel, setIsLiveChannel] = useState(false); 
-  const [liveVideoData, setLiveVideoData] = useState(null); // নির্দিষ্ট লাইভ ভিডিওর ডেটা সংরক্ষণের জন্য
+  const [liveVideoData, setLiveVideoData] = useState(null);
   const [thumbQuality, setThumbQuality] = useState('High');
   const [channelBanner, setChannelBanner] = useState('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop');
   const [subscriberCount, setSubscriberCount] = useState('N/A');
 
   const [tabData, setTabData] = useState({ Videos: [], Shorts: [] });
+  
+  // প্যাজিনেশনের জন্য টোকেন এবং API Key স্টেট
+  const [videoToken, setVideoToken] = useState(null);
+  const [shortToken, setShortToken] = useState(null);
+  const [apiKey, setApiKey] = useState(null);
 
   useEffect(() => {
     fetchChannelData();
@@ -47,13 +53,13 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  const extractChannelDataRecursively = (node, categorizedData) => {
+  // টোকেন এবং ডেটা এক্সট্র্যাক্ট করার আপডেটেড ফাংশন
+  const extractChannelDataRecursively = (node, categorizedData, tabType) => {
     const parseVid = (vid) => {
       const duration = vid.lengthText?.simpleText || '';
       const publishedTime = vid.publishedTimeText?.simpleText || ''; 
       const title = vid.title?.runs?.[0]?.text || vid.title?.simpleText || 'No Title';
       const views = vid.shortViewCountText?.simpleText || vid.viewCountText?.simpleText || '';
-      // ভিডিওটি লাইভ কিনা তা চেক করে স্ট্যাটাস সেভ করা হচ্ছে
       const isLive = JSON.stringify(vid).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
 
       return {
@@ -70,16 +76,21 @@ export default function ChannelScreen() {
     };
 
     if (Array.isArray(node)) {
-      node.forEach(child => extractChannelDataRecursively(child, categorizedData));
+      node.forEach(child => extractChannelDataRecursively(child, categorizedData, tabType));
     } else if (node !== null && typeof node === 'object') {
+      
+      // Continuation Token খোঁজার লজিক
+      if (node.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
+        categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
+      }
+
       if ((node.videoRenderer && node.videoRenderer.videoId) || (node.gridVideoRenderer && node.gridVideoRenderer.videoId)) {
         const target = node.videoRenderer || node.gridVideoRenderer;
-        const parsedVid = parseVid(target);
-        categorizedData.Videos.push(parsedVid);
+        categorizedData.Videos.push(parseVid(target));
       } else if (node.reelItemRenderer && node.reelItemRenderer.videoId) {
         const title = node.reelItemRenderer.headline?.simpleText || node.reelItemRenderer.title?.simpleText || 'Short Video';
         const views = node.reelItemRenderer.viewCountText?.simpleText || 'N/A';
-        const parsedShort = {
+        categorizedData.Shorts.push({
           id: String(node.reelItemRenderer.videoId), 
           title: String(title),
           views: String(views),
@@ -87,10 +98,9 @@ export default function ChannelScreen() {
           channel: channelName, 
           avatar: channelAvatar, 
           duration: 'Short'
-        };
-        categorizedData.Shorts.push(parsedShort);
+        });
       } else {
-        Object.values(node).forEach(child => extractChannelDataRecursively(child, categorizedData));
+        Object.values(node).forEach(child => extractChannelDataRecursively(child, categorizedData, tabType));
       }
     }
   };
@@ -138,27 +148,35 @@ export default function ChannelScreen() {
       const videosHtml = await videosRes.text();
       const shortsHtml = await shortsRes.text();
 
+      // Extract INNERTUBE_API_KEY for pagination
+      const apiMatch = videosHtml.match(/"INNERTUBE_API_KEY":"(.*?)"/);
+      if (apiMatch && apiMatch[1]) {
+          setApiKey(apiMatch[1]);
+      }
+
       let videosMatch = videosHtml.match(/ytInitialData\s*=\s*({.+?});/) || videosHtml.match(/var ytInitialData = (.*?);<\/script>/);
       let shortsMatch = shortsHtml.match(/ytInitialData\s*=\s*({.+?});/) || shortsHtml.match(/var ytInitialData = (.*?);<\/script>/);
 
-      const categorizedData = { Videos: [], Shorts: [] };
+      const categorizedData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
 
-      const processMatch = (match) => {
+      const processMatch = (match, tabType) => {
         if (match && match[1]) {
           const parsedData = JSON.parse(match[1]);
-          extractChannelDataRecursively(parsedData, categorizedData);
+          extractChannelDataRecursively(parsedData, categorizedData, tabType);
           return parsedData;
         }
         return null;
       };
 
-      const parsedVideosData = processMatch(videosMatch);
-      processMatch(shortsMatch);
+      const parsedVideosData = processMatch(videosMatch, 'Videos');
+      processMatch(shortsMatch, 'Shorts');
 
       categorizedData.Videos = categorizedData.Videos.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
       categorizedData.Shorts = categorizedData.Shorts.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
 
-      // নির্দিষ্ট লাইভ ভিডিওটি খুঁজে বের করা হচ্ছে
+      setVideoToken(categorizedData.VideosToken);
+      setShortToken(categorizedData.ShortsToken);
+
       const currentLiveVideo = categorizedData.Videos.find(v => v.isLive);
       if (currentLiveVideo) {
          setIsLiveChannel(true);
@@ -168,7 +186,7 @@ export default function ChannelScreen() {
          setLiveVideoData(null);
       }
 
-      setTabData(categorizedData);
+      setTabData({ Videos: categorizedData.Videos, Shorts: categorizedData.Shorts });
 
       if (parsedVideosData) {
         const header = parsedVideosData?.header?.c4TabbedHeaderRenderer || parsedVideosData?.header?.pageHeaderRenderer;
@@ -196,6 +214,61 @@ export default function ChannelScreen() {
       console.error(error);
     } finally { 
       setLoading(false); 
+    }
+  };
+
+  // পরবর্তী পেজের ভিডিও লোড করার ফাংশন
+  const fetchMoreData = async () => {
+    const currentToken = activeTab === 'Videos' ? videoToken : shortToken;
+    
+    // যদি টোকেন না থাকে, অথবা আগে থেকেই লোড হচ্ছে, অথবা API key না থাকে, তাহলে রিটার্ন করবে
+    if (!currentToken || isLoadingMore || !apiKey) return;
+
+    setIsLoadingMore(true);
+    try {
+      const response = await fetch(`https://www.youtube.com/youtubei/v1/browse?key=${apiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': DESKTOP_AGENT,
+        },
+        body: JSON.stringify({
+          context: {
+            client: {
+              clientName: 'WEB',
+              clientVersion: '2.20231214.00.00', // YouTube's stable web client version
+            }
+          },
+          continuation: currentToken
+        })
+      });
+      
+      const data = await response.json();
+      const newData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
+      
+      extractChannelDataRecursively(data, newData, activeTab);
+
+      // ডুপ্লিকেট ভিডিও ফিল্টার করা হচ্ছে
+      const filteredNewItems = newData[activeTab].filter(
+        newObj => !tabData[activeTab].some(existingObj => existingObj.id === newObj.id)
+      );
+
+      setTabData(prev => ({
+        ...prev,
+        [activeTab]: [...prev[activeTab], ...filteredNewItems]
+      }));
+
+      // নতুন টোকেন সেট করা
+      if (activeTab === 'Videos') {
+        setVideoToken(newData.VideosToken || null);
+      } else {
+        setShortToken(newData.ShortsToken || null);
+      }
+
+    } catch (error) {
+      console.error('Error fetching more videos:', error);
+    } finally {
+      setIsLoadingMore(false);
     }
   };
 
@@ -266,12 +339,21 @@ export default function ChannelScreen() {
       </View>
     );
   };
+  
+  // Footer Loader for Pagination
+  const renderFooter = () => {
+    if (!isLoadingMore) return null;
+    return (
+      <View style={{ paddingVertical: 20 }}>
+        <ActivityIndicator size="large" color="#FF0000" />
+      </View>
+    );
+  };
 
   const ChannelHeader = () => (
     <View>
       <Image source={{ uri: channelBanner }} style={styles.bannerImage} />
       <View style={styles.channelProfileSection}>
-        {/* লোগো এবং লাইভ ব্যাজের অংশ (ক্লিকেবল) */}
         <TouchableOpacity 
           style={styles.avatarWrapper} 
           activeOpacity={isLiveChannel ? 0.7 : 1} 
@@ -340,7 +422,10 @@ export default function ChannelScreen() {
         renderItem={renderItem} 
         keyExtractor={(item, index) => item.id + index.toString()} 
         ListHeaderComponent={ChannelHeader}
-        ListEmptyComponent={renderEmptyComponent} 
+        ListEmptyComponent={renderEmptyComponent}
+        ListFooterComponent={renderFooter} // Footer Loader
+        onEndReached={fetchMoreData} // স্ক্রোল নিচে গেলেই ট্রিগার হবে
+        onEndReachedThreshold={0.5} // স্ক্রিনের অর্ধেক বাকি থাকতেই লোড শুরু হবে
         showsVerticalScrollIndicator={false} 
         contentContainerStyle={{ paddingBottom: 80 }} 
       />
