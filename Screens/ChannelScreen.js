@@ -53,16 +53,12 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
+  // JSON পার্সিং ইঞ্জিন (NewPipe লেভেলের ডিটেকশন)
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     const stack = [rootNode];
 
     while (stack.length > 0) {
-      let node = stack.pop();
-
-      // YouTube-এর নতুন লেআউট (richItemRenderer) হ্যান্ডেল করার জন্য বাইপাস
-      if (node && node.richItemRenderer && node.richItemRenderer.content) {
-        node = node.richItemRenderer.content;
-      }
+      const node = stack.pop(); // এখানে আর কোনো মিউটেশন করা হয়নি (সম্পূর্ণ সেইফ)
 
       if (Array.isArray(node)) {
         for (let i = 0; i < node.length; i++) {
@@ -74,9 +70,10 @@ export default function ChannelScreen() {
           categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
         }
 
-        if ((node.videoRenderer && node.videoRenderer.videoId) || (node.gridVideoRenderer && node.gridVideoRenderer.videoId)) {
-          const target = node.videoRenderer || node.gridVideoRenderer;
+        // সব ধরনের ভিডিও রেন্ডারার সাপোর্ট
+        const target = node.videoRenderer || node.gridVideoRenderer || node.compactVideoRenderer || node.playlistVideoRenderer;
 
+        if (target && target.videoId) {
           const duration = target.lengthText?.simpleText || '';
           const publishedTime = target.publishedTimeText?.simpleText || ''; 
           const title = target.title?.runs?.[0]?.text || target.title?.simpleText || 'No Title';
@@ -108,6 +105,7 @@ export default function ChannelScreen() {
             thumbnail: shortThumbnailUrl, channel: channelName, avatar: channelAvatar, duration: 'Short'
           });
         } else {
+          // গভীরে খোঁজার জন্য
           const values = Object.values(node);
           for (let i = 0; i < values.length; i++) {
             if (values[i] && typeof values[i] === 'object') stack.push(values[i]);
@@ -115,6 +113,17 @@ export default function ChannelScreen() {
         }
       }
     }
+  };
+
+  // YouTube-এর InitialData বের করার জন্য আরও শক্তিশালী লজিক
+  const parseYtData = (html) => {
+    let match = html.match(/ytInitialData\s*=\s*({.+?});/) || 
+                html.match(/var ytInitialData\s*=\s*(.*?);<\/script>/) ||
+                html.match(/window\["ytInitialData"\]\s*=\s*({.+?});/);
+    if (match && match[1]) {
+      try { return JSON.parse(match[1]); } catch(e) {}
+    }
+    return null;
   };
 
   const fetchChannelData = async () => {
@@ -129,44 +138,35 @@ export default function ChannelScreen() {
           console.log(`🕵️‍♂️ [MyTube Detective] 🌐 সরাসরি URL পাওয়া যায়নি। YouTube-এ চ্যানেলটি খোঁজা হচ্ছে...`);
           const searchResponse = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(channelName)}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
           const searchHtml = await searchResponse.text();
-          let searchMatch = searchHtml.match(/ytInitialData\s*=\s*({.+?});/) || searchHtml.match(/var ytInitialData = (.*?);<\/script>/);
+          const searchData = parseYtData(searchHtml);
 
-          if (searchMatch && searchMatch[1]) {
-            try {
-              const searchData = JSON.parse(searchMatch[1]);
-              const findChannelUrl = (node) => {
-                if (extractedChannelUrl) return; 
-                if (node?.channelRenderer?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url) {
-                   extractedChannelUrl = node.channelRenderer.navigationEndpoint.commandMetadata.webCommandMetadata.url;
-                   return;
-                }
-                if (node?.videoRenderer?.ownerText?.runs?.[0]?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url) {
-                   extractedChannelUrl = node.videoRenderer.ownerText.runs[0].navigationEndpoint.commandMetadata.webCommandMetadata.url;
-                   return;
-                }
-                if (node && typeof node === 'object') {
-                  Object.values(node).forEach(child => findChannelUrl(child));
-                }
-              };
-              findChannelUrl(searchData);
-            } catch (err) {}
+          if (searchData) {
+            const findChannelUrl = (node) => {
+              if (extractedChannelUrl) return; 
+              if (node?.channelRenderer?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url) {
+                 extractedChannelUrl = node.channelRenderer.navigationEndpoint.commandMetadata.webCommandMetadata.url;
+                 return;
+              }
+              if (node?.videoRenderer?.ownerText?.runs?.[0]?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url) {
+                 extractedChannelUrl = node.videoRenderer.ownerText.runs[0].navigationEndpoint.commandMetadata.webCommandMetadata.url;
+                 return;
+              }
+              if (node && typeof node === 'object') Object.values(node).forEach(child => findChannelUrl(child));
+            };
+            findChannelUrl(searchData);
           }
       }
 
       if (!extractedChannelUrl) {
         console.log(`🕵️‍♂️ [MyTube Detective] 🚨 চ্যানেল URL বের করা সম্ভব হয়নি।`);
-        setLoading(false);
-        return; 
+        setLoading(false); return; 
       }
 
       console.log(`🕵️‍♂️ [MyTube Detective] 🎯 টার্গেট চ্যানেল URL: https://www.youtube.com${extractedChannelUrl}`);
 
-      let targetVideosUrl = `https://www.youtube.com${extractedChannelUrl}/videos`;
-      let targetShortsUrl = `https://www.youtube.com${extractedChannelUrl}/shorts`;
-
       const [videosRes, shortsRes] = await Promise.all([
-        fetch(targetVideosUrl, { headers: { 'User-Agent': DESKTOP_AGENT } }),
-        fetch(targetShortsUrl, { headers: { 'User-Agent': DESKTOP_AGENT } })
+        fetch(`https://www.youtube.com${extractedChannelUrl}/videos`, { headers: { 'User-Agent': DESKTOP_AGENT } }),
+        fetch(`https://www.youtube.com${extractedChannelUrl}/shorts`, { headers: { 'User-Agent': DESKTOP_AGENT } })
       ]);
 
       const videosHtml = await videosRes.text();
@@ -175,36 +175,24 @@ export default function ChannelScreen() {
       const apiMatch = videosHtml.match(/"INNERTUBE_API_KEY":"(.*?)"/);
       if (apiMatch && apiMatch[1]) setApiKey(apiMatch[1]);
 
-      let videosMatch = videosHtml.match(/ytInitialData\s*=\s*({.+?});/) || videosHtml.match(/var ytInitialData = (.*?);<\/script>/);
-      let shortsMatch = shortsHtml.match(/ytInitialData\s*=\s*({.+?});/) || shortsHtml.match(/var ytInitialData = (.*?);<\/script>/);
+      let parsedVideosData = parseYtData(videosHtml);
+      let parsedShortsData = parseYtData(shortsHtml);
 
       const categorizedData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
 
-      const processMatch = (match, tabType) => {
-        if (match && match[1]) {
-          try {
-            const parsedData = JSON.parse(match[1]);
-            extractDataIteratively(parsedData, categorizedData, tabType); 
-            return parsedData;
-          } catch (error) { return null; }
-        }
-        return null;
-      };
+      if (parsedVideosData) extractDataIteratively(parsedVideosData, categorizedData, 'Videos');
+      if (parsedShortsData) extractDataIteratively(parsedShortsData, categorizedData, 'Shorts');
 
-      let parsedVideosData = processMatch(videosMatch, 'Videos');
-      processMatch(shortsMatch, 'Shorts');
-
-      // --- 💡 Fallback Logic: যদি Videos ট্যাবে কিছু না পাওয়া যায়, তবে Home পেজ চেক করো ---
-      if (categorizedData.Videos.length === 0) {
-         console.log(`🕵️‍♂️ [MyTube Detective] ⚠️ /videos ট্যাবে কিছু পাওয়া যায়নি! চ্যানেলের হোম পেজ চেক করা হচ্ছে...`);
+      // --- 💡 Fallback Logic: যদি Videos বা Shorts ট্যাবে কিছু না পাওয়া যায়, তবে Home পেজ চেক করো ---
+      if (categorizedData.Videos.length === 0 && categorizedData.Shorts.length === 0) {
+         console.log(`🕵️‍♂️ [MyTube Detective] ⚠️ /videos এবং /shorts ট্যাবে কিছু পাওয়া যায়নি! চ্যানেলের হোম পেজ চেক করা হচ্ছে...`);
          try {
             const homeRes = await fetch(`https://www.youtube.com${extractedChannelUrl}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
             const homeHtml = await homeRes.text();
-            let homeMatch = homeHtml.match(/ytInitialData\s*=\s*({.+?});/) || homeHtml.match(/var ytInitialData = (.*?);<\/script>/);
+            const homeData = parseYtData(homeHtml);
             
-            if (homeMatch && homeMatch[1]) {
-               const homeData = JSON.parse(homeMatch[1]);
-               if (!parsedVideosData) parsedVideosData = homeData; // Header ডাটার জন্য
+            if (homeData) {
+               if (!parsedVideosData) parsedVideosData = homeData;
                extractDataIteratively(homeData, categorizedData, 'Videos');
                console.log(`🕵️‍♂️ [MyTube Detective] 🏠 হোম পেজ থেকে স্ক্যান সম্পন্ন।`);
             }
