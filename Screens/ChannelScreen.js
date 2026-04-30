@@ -35,7 +35,6 @@ export default function ChannelScreen() {
   const [apiKey, setApiKey] = useState(null);
 
   useEffect(() => {
-    console.log(`\n🕵️‍♂️ [Detective] Channel Screen Opened for: ${channelName}`);
     fetchChannelData();
   }, [channelName]);
 
@@ -58,7 +57,12 @@ export default function ChannelScreen() {
     const stack = [rootNode];
 
     while (stack.length > 0) {
-      const node = stack.pop();
+      let node = stack.pop();
+
+      // YouTube-এর নতুন লেআউট (richItemRenderer) হ্যান্ডেল করার জন্য বাইপাস
+      if (node && node.richItemRenderer && node.richItemRenderer.content) {
+        node = node.richItemRenderer.content;
+      }
 
       if (Array.isArray(node)) {
         for (let i = 0; i < node.length; i++) {
@@ -70,14 +74,9 @@ export default function ChannelScreen() {
           categorizedData[`${tabType}Token`] = node.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
         }
 
-        // 💡 ফিক্স ১: ছোট চ্যানেলের richItemRenderer ধরার ব্যবস্থা করা হলো
-        let target = null;
-        if (node.videoRenderer && node.videoRenderer.videoId) target = node.videoRenderer;
-        else if (node.gridVideoRenderer && node.gridVideoRenderer.videoId) target = node.gridVideoRenderer;
-        else if (node.compactVideoRenderer && node.compactVideoRenderer.videoId) target = node.compactVideoRenderer;
-        else if (node.richItemRenderer?.content?.videoRenderer?.videoId) target = node.richItemRenderer.content.videoRenderer;
+        if ((node.videoRenderer && node.videoRenderer.videoId) || (node.gridVideoRenderer && node.gridVideoRenderer.videoId)) {
+          const target = node.videoRenderer || node.gridVideoRenderer;
 
-        if (target) {
           const duration = target.lengthText?.simpleText || '';
           const publishedTime = target.publishedTimeText?.simpleText || ''; 
           const title = target.title?.runs?.[0]?.text || target.title?.simpleText || 'No Title';
@@ -85,30 +84,14 @@ export default function ChannelScreen() {
           const isLive = JSON.stringify(target).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
           const videoId = target.videoId;
 
-          if (categorizedData.Videos.length < 2) { 
-              console.log(`\n🕵️‍♂️ [Deep Detective] Video ID: ${videoId} extracted!`);
-          }
-
-          // 💡 আপনার আগের মূল লজিক (বড় চ্যানেলের থাম্বনেইল ঠিক রাখার জন্য)
-          let finalThumbnailUrl = '';
-          try {
-              if (target.thumbnail && target.thumbnail.thumbnails && target.thumbnail.thumbnails.length > 0) {
-                  let index = thumbQuality === 'Data Saver' ? 0 : target.thumbnail.thumbnails.length - 1;
-                  finalThumbnailUrl = target.thumbnail.thumbnails[index].url;
-                  if (finalThumbnailUrl.startsWith('//')) finalThumbnailUrl = 'https:' + finalThumbnailUrl;
-              }
-          } catch(e) {}
-
-          if (!finalThumbnailUrl || finalThumbnailUrl === '') {
-              finalThumbnailUrl = thumbQuality === 'Data Saver' 
-                  ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` 
-                  : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-          }
+          const thumbnailUrl = thumbQuality === 'Data Saver' 
+              ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` 
+              : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
           categorizedData.Videos.push({
             id: String(videoId), title: String(title), views: String(views),
             publishedTime: String(publishedTime), duration: String(duration),
-            thumbnail: finalThumbnailUrl, channel: channelName, avatar: channelAvatar, isLive: isLive
+            thumbnail: thumbnailUrl, channel: channelName, avatar: channelAvatar, isLive: isLive
           });
 
         } else if (node.reelItemRenderer && node.reelItemRenderer.videoId) {
@@ -116,20 +99,9 @@ export default function ChannelScreen() {
           const views = node.reelItemRenderer.viewCountText?.simpleText || 'N/A';
           const videoId = node.reelItemRenderer.videoId;
 
-          let shortThumbnailUrl = '';
-          try {
-              if (node.reelItemRenderer.thumbnail && node.reelItemRenderer.thumbnail.thumbnails && node.reelItemRenderer.thumbnail.thumbnails.length > 0) {
-                  let index = thumbQuality === 'Data Saver' ? 0 : node.reelItemRenderer.thumbnail.thumbnails.length - 1;
-                  shortThumbnailUrl = node.reelItemRenderer.thumbnail.thumbnails[index].url;
-                  if (shortThumbnailUrl.startsWith('//')) shortThumbnailUrl = 'https:' + shortThumbnailUrl;
-              }
-          } catch(e) {}
-
-          if (!shortThumbnailUrl || shortThumbnailUrl === '') {
-              shortThumbnailUrl = thumbQuality === 'Data Saver' 
-                  ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` 
-                  : `https://i.ytimg.com/vi/${videoId}/oardefault.jpg`;
-          }
+          const shortThumbnailUrl = thumbQuality === 'Data Saver' 
+              ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` 
+              : `https://i.ytimg.com/vi/${videoId}/oardefault.jpg`;
 
           categorizedData.Shorts.push({
             id: String(videoId), title: String(title), views: String(views),
@@ -147,15 +119,22 @@ export default function ChannelScreen() {
 
   const fetchChannelData = async () => {
     setLoading(true);
+    console.log(`\n🕵️‍♂️ [MyTube Detective] ========================================`);
+    console.log(`🕵️‍♂️ [MyTube Detective] 🔍 স্ক্যান শুরু হচ্ছে: ${channelName}`);
+    
     try {
       let extractedChannelUrl = paramChannelUrl || channelData?.channelUrl || null;
 
       if (!extractedChannelUrl) {
+          console.log(`🕵️‍♂️ [MyTube Detective] 🌐 সরাসরি URL পাওয়া যায়নি। YouTube-এ চ্যানেলটি খোঁজা হচ্ছে...`);
           const searchResponse = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(channelName)}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
+          console.log(`🕵️‍♂️ [MyTube Detective] 📡 সার্চ রেসপন্স স্ট্যাটাস: ${searchResponse.status}`);
+          
           const searchHtml = await searchResponse.text();
           let searchMatch = searchHtml.match(/ytInitialData\s*=\s*({.+?});/) || searchHtml.match(/var ytInitialData = (.*?);<\/script>/);
 
           if (searchMatch && searchMatch[1]) {
+            console.log(`🕵️‍♂️ [MyTube Detective] ✅ সার্চ রেজাল্ট থেকে ytInitialData পাওয়া গেছে।`);
             try {
               const searchData = JSON.parse(searchMatch[1]);
               const findChannelUrl = (node) => {
@@ -173,14 +152,21 @@ export default function ChannelScreen() {
                 }
               };
               findChannelUrl(searchData);
-            } catch (err) {}
+            } catch (err) {
+               console.error(`🕵️‍♂️ [MyTube Detective] ❌ সার্চ ডাটা JSON পার্স করতে সমস্যা:`, err.message);
+            }
+          } else {
+             console.log(`🕵️‍♂️ [MyTube Detective] ❌ সার্চ রেজাল্টে ytInitialData পাওয়া যায়নি!`);
           }
       }
 
       if (!extractedChannelUrl) {
+        console.log(`🕵️‍♂️ [MyTube Detective] 🚨 চ্যানেল URL বের করা সম্ভব হয়নি। এখানেই প্রসেস থামানো হলো।`);
         setLoading(false);
         return; 
       }
+
+      console.log(`🕵️‍♂️ [MyTube Detective] 🎯 টার্গেট চ্যানেল URL: https://www.youtube.com${extractedChannelUrl}`);
 
       let targetVideosUrl = `https://www.youtube.com${extractedChannelUrl}/videos`;
       let targetShortsUrl = `https://www.youtube.com${extractedChannelUrl}/shorts`;
@@ -190,16 +176,24 @@ export default function ChannelScreen() {
         fetch(targetShortsUrl, { headers: { 'User-Agent': DESKTOP_AGENT } })
       ]);
 
+      console.log(`🕵️‍♂️ [MyTube Detective] 📡 ভিডিও পেজ স্ট্যাটাস: ${videosRes.status} | শর্টস পেজ স্ট্যাটাস: ${shortsRes.status}`);
+
       const videosHtml = await videosRes.text();
       const shortsHtml = await shortsRes.text();
 
       const apiMatch = videosHtml.match(/"INNERTUBE_API_KEY":"(.*?)"/);
       if (apiMatch && apiMatch[1]) {
           setApiKey(apiMatch[1]);
+      } else {
+          console.log(`🕵️‍♂️ [MyTube Detective] ⚠️ INNERTUBE_API_KEY পাওয়া যায়নি! (পরবর্তীতে লোড মোর কাজে সমস্যা হতে পারে)`);
       }
 
       let videosMatch = videosHtml.match(/ytInitialData\s*=\s*({.+?});/) || videosHtml.match(/var ytInitialData = (.*?);<\/script>/);
       let shortsMatch = shortsHtml.match(/ytInitialData\s*=\s*({.+?});/) || shortsHtml.match(/var ytInitialData = (.*?);<\/script>/);
+
+      if (!videosMatch) {
+         console.log(`🕵️‍♂️ [MyTube Detective] ❌ ভিডিও ট্যাবে ytInitialData নেই! YouTube চ্যানেল লেআউট পরিবর্তন করেছে অথবা রিকোয়েস্ট ব্লক করেছে।`);
+      }
 
       const categorizedData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
 
@@ -207,29 +201,28 @@ export default function ChannelScreen() {
         if (match && match[1]) {
           try {
             const parsedData = JSON.parse(match[1]);
-            extractDataIteratively(parsedData, categorizedData, tabType);
+            extractDataIteratively(parsedData, categorizedData, tabType); 
             return parsedData;
-          } catch (error) { return null; }
+          } catch (error) { 
+             console.error(`🕵️‍♂️ [MyTube Detective] ❌ ${tabType} JSON পার্সিং এরর:`, error.message);
+             return null; 
+          }
         }
         return null;
       };
 
-      let parsedVideosData = processMatch(videosMatch, 'Videos');
+      const parsedVideosData = processMatch(videosMatch, 'Videos');
       processMatch(shortsMatch, 'Shorts');
-
-      // 💡 ফিক্স ২: যদি ছোট চ্যানেলে /videos ট্যাব না থাকে, তবে হোমপেজ থেকে ভিডিও আনবে
-      if (categorizedData.Videos.length === 0) {
-          try {
-              const homeRes = await fetch(`https://www.youtube.com${extractedChannelUrl}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
-              const homeHtml = await homeRes.text();
-              let homeMatch = homeHtml.match(/ytInitialData\s*=\s*({.+?});/) || homeHtml.match(/var ytInitialData = (.*?);<\/script>/);
-              let parsedHomeData = processMatch(homeMatch, 'Videos');
-              if (!parsedVideosData) parsedVideosData = parsedHomeData;
-          } catch(e) {}
-      }
 
       categorizedData.Videos = categorizedData.Videos.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
       categorizedData.Shorts = categorizedData.Shorts.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
+
+      console.log(`🕵️‍♂️ [MyTube Detective] 🎬 মোট ভিডিও পাওয়া গেছে: ${categorizedData.Videos.length}`);
+      console.log(`🕵️‍♂️ [MyTube Detective] 📱 মোট শর্টস পাওয়া গেছে: ${categorizedData.Shorts.length}`);
+
+      if (categorizedData.Videos.length === 0) {
+         console.log(`🕵️‍♂️ [MyTube Detective] ⚠️ ওয়ার্নিং: কোনো ভিডিও এক্সট্রাক্ট হয়নি! JSON স্ট্রাকচার হয়তো ভিডিও রেন্ডার করছে না।`);
+      }
 
       setVideoToken(categorizedData.VideosToken);
       setShortToken(categorizedData.ShortsToken);
@@ -256,7 +249,12 @@ export default function ChannelScreen() {
         if (subs) setSubscriberCount(subs);
       }
 
-    } catch (error) {} finally { setLoading(false); }
+    } catch (error) {
+       console.error(`🕵️‍♂️ [MyTube Detective] ❌ ক্রিটিকাল এরর (কোড ক্র্যাশ করেছে):`, error.message);
+    } finally { 
+       console.log(`🕵️‍♂️ [MyTube Detective] ========================================\n`);
+       setLoading(false); 
+    }
   };
 
   const fetchMoreData = async () => {
@@ -264,6 +262,7 @@ export default function ChannelScreen() {
     if (!currentToken || isLoadingMore || !apiKey) return;
 
     setIsLoadingMore(true);
+    console.log(`🕵️‍♂️ [MyTube Detective] 🔄 আরও ডাটা লোড করা হচ্ছে... (Load More)`);
     try {
       const response = await fetch(`https://www.youtube.com/youtubei/v1/browse?key=${apiKey}`, {
         method: 'POST',
@@ -275,10 +274,18 @@ export default function ChannelScreen() {
       });
       const responseText = await response.text();
       let data;
-      try { data = JSON.parse(responseText); } catch (err) { setIsLoadingMore(false); return; }
+      try { 
+        data = JSON.parse(responseText); 
+      } catch (err) { 
+        console.error(`🕵️‍♂️ [MyTube Detective] ❌ Load More JSON পার্সিং ফেইলড:`, err.message);
+        setIsLoadingMore(false); 
+        return; 
+      }
 
       const newData = { Videos: [], Shorts: [], VideosToken: null, ShortsToken: null };
       extractDataIteratively(data, newData, activeTab);
+
+      console.log(`🕵️‍♂️ [MyTube Detective] ➕ নতুন আইটেম যুক্ত হয়েছে: ${newData[activeTab].length}`);
 
       const filteredNewItems = newData[activeTab].filter(newObj => !tabData[activeTab].some(existingObj => existingObj.id === newObj.id));
       setTabData(prev => ({ ...prev, [activeTab]: [...prev[activeTab], ...filteredNewItems] }));
@@ -286,7 +293,11 @@ export default function ChannelScreen() {
       if (activeTab === 'Videos') setVideoToken(newData.VideosToken || null);
       else setShortToken(newData.ShortsToken || null);
 
-    } catch (error) {} finally { setIsLoadingMore(false); }
+    } catch (error) {
+       console.error(`🕵️‍♂️ [MyTube Detective] ❌ Load More রিকোয়েস্ট ফেইলড:`, error.message);
+    } finally { 
+      setIsLoadingMore(false); 
+    }
   };
 
   const handleSubscriptionToggle = async () => {
@@ -314,10 +325,7 @@ export default function ChannelScreen() {
     if (activeTab === 'Shorts') {
       return (
         <TouchableOpacity style={styles.shortGridItem} activeOpacity={0.8} onPress={() => navigation.navigate('ShortsScreen', { videoId: item.id, videoData: item })}>
-          <Image 
-            source={{ uri: item.thumbnail }} 
-            style={styles.shortGridImage} 
-          />
+          <Image source={{ uri: item.thumbnail }} style={styles.shortGridImage} />
           <View style={styles.shortViewsOverlay}>
             <Ionicons name="play-outline" size={14} color="#FFF" />
             <Text style={styles.shortViewsText}>{item.views}</Text>
@@ -332,10 +340,7 @@ export default function ChannelScreen() {
     return (
       <View style={styles.videoCard}>
         <TouchableOpacity style={styles.thumbnailContainer} activeOpacity={0.8} onPress={() => handleVideoPress(item)}>
-          <Image 
-            source={{ uri: item.thumbnail }} 
-            style={styles.thumbnailImage} 
-          />
+          <Image source={{ uri: item.thumbnail }} style={styles.thumbnailImage} />
           {item.duration ? <Text style={styles.durationBadge}>{item.duration}</Text> : null}
         </TouchableOpacity>
         <View style={styles.videoInfoContainer}>
