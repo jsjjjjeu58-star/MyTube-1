@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, SafeAreaView, Platform, StatusBar, Keyboard, ActivityIndicator, Image, InteractionManager, Dimensions } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, SafeAreaView, Platform, StatusBar, Keyboard, ActivityIndicator, Image, Dimensions, InteractionManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -7,9 +7,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const { width, height } = Dimensions.get('window');
 const HEADER_HEIGHT = height / 12; 
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-
-// গ্লোবাল ভেরিয়েবল যা প্রি-লোড করা ভিডিওর ডেটা ধরে রাখবে
-global.preloadedShortsData = global.preloadedShortsData || {};
 
 export default function SearchSettingScreen() {
   const navigation = useNavigation();
@@ -29,15 +26,6 @@ export default function SearchSettingScreen() {
   const [continuationToken, setContinuationToken] = useState(null);
   const [apiKey, setApiKey] = useState(null);
 
-  // [নতুন লজিক]: যখন ইউজার এই স্ক্রিন থেকে বের হয়ে যাবে, তখন মেমরি ক্লিয়ার করে দিবে
-  useEffect(() => {
-    return () => {
-      // কম্পোনেন্ট আনমাউন্ট হওয়ার সময় সমস্ত প্রি-লোড ডাটা মুছে ফেলা হলো
-      global.preloadedShortsData = {}; 
-      console.log("Search screen exited: Preloaded shorts data cleared from memory.");
-    };
-  }, []);
-
   useEffect(() => {
     if (!query) {
       InteractionManager.runAfterInteractions(() => {
@@ -47,13 +35,12 @@ export default function SearchSettingScreen() {
     }
   }, []);
 
+  // ফিরে আসার পর ফ্রিজ হওয়া রোধ করতে InteractionManager রিমুভ করা হয়েছে
   useFocusEffect(
     useCallback(() => {
       if (showResults) {
-        InteractionManager.runAfterInteractions(() => {
-          Keyboard.dismiss();
-          inputRef.current?.blur();
-        });
+        Keyboard.dismiss();
+        inputRef.current?.blur();
       }
     }, [showResults])
   );
@@ -106,23 +93,6 @@ export default function SearchSettingScreen() {
     setSuggestions([]);
     setShowResults(true);
     fetchSearchResults(text.trim());
-  };
-
-  // [আপডেটেড লজিক]: কোনো লিমিট ছাড়া সমস্ত শর্টস প্রি-লোড করবে
-  const preloadShortsData = async (shortsArray) => {
-    shortsArray.forEach(async (short) => {
-      if (!global.preloadedShortsData[short.id]) {
-         try {
-           const res = await fetch(`https://www.youtube.com/shorts/${short.id}`, { 
-             headers: { 'User-Agent': DESKTOP_AGENT } 
-           });
-           const text = await res.text();
-           global.preloadedShortsData[short.id] = text; 
-         } catch(e) {
-           console.log("Preload Failed for:", short.id);
-         }
-      }
-    });
   };
 
   const fetchSearchResults = async (searchQuery) => {
@@ -230,12 +200,10 @@ export default function SearchSettingScreen() {
       }
     });
     
-    const formattedShorts = Array.from(uniqueShortsMap.values());
+    const formattedShorts = Array.from(uniqueShortsMap.values()).slice(0, 15);
 
     if (formattedShorts.length > 0) {
       finalFeed.push({ type: 'shorts_shelf', id: 'shorts_' + Date.now(), shorts: formattedShorts });
-      // কলব্যাক: যতগুলো শর্টস আসবে সবগুলোই প্রি-লোড হবে
-      preloadShortsData(formattedShorts);
     }
 
     const uniqueVideosMap = new Map();
@@ -267,20 +235,24 @@ export default function SearchSettingScreen() {
     });
   };
 
-  const navigateToShorts = (short) => {
-    Keyboard.dismiss();
-    inputRef.current?.blur();
-    InteractionManager.runAfterInteractions(() => {
-        navigation.navigate('Shorts', { initialVideoId: short.id, videoId: short.id, videoData: short });
-    });
-  };
-
   const navigateToChannel = (item) => {
     Keyboard.dismiss();
     inputRef.current?.blur();
     InteractionManager.runAfterInteractions(() => {
         navigation.navigate('Channel', { channelName: item.channel || item.title, channelAvatar: item.avatar, channelUrl: item.channelUrl });
     });
+  };
+
+  // [আপডেট]: শুধুমাত্র শর্টসের জন্য সম্পর্ক ছিন্ন করা হলো
+  const navigateToShorts = (short) => {
+    Keyboard.dismiss();
+    inputRef.current?.blur();
+    
+    // setTimeout ব্যবহার করে মেইন থ্রেড থেকে নেভিগেশনকে আলাদা (Decouple) করা হলো
+    // এর ফলে ব্যাক করলে শর্টস স্ক্রিনের লোড সার্চ স্ক্রিনকে আর আটকে রাখবে না
+    setTimeout(() => {
+      navigation.navigate('Shorts', { initialVideoId: short.id, videoId: short.id, videoData: short });
+    }, 10); 
   };
 
   const renderItem = ({ item }) => {
