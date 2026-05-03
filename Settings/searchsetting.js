@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-// এখানে Dimensions ইম্পোর্ট করা হয়েছে যা আগে মিসিং ছিল
 import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, SafeAreaView, Platform, StatusBar, Keyboard, ActivityIndicator, Image, InteractionManager, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
-const HEADER_HEIGHT = height / 12; // ডিভাইসের ১২ ভাগের ১ ভাগ উচ্চতা
+const HEADER_HEIGHT = height / 12; 
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+// গ্লোবাল ভেরিয়েবল যা প্রি-লোড করা ভিডিওর ডেটা ধরে রাখবে
+global.preloadedShortsData = global.preloadedShortsData || {};
 
 export default function SearchSettingScreen() {
   const navigation = useNavigation();
@@ -26,6 +28,15 @@ export default function SearchSettingScreen() {
   
   const [continuationToken, setContinuationToken] = useState(null);
   const [apiKey, setApiKey] = useState(null);
+
+  // [নতুন লজিক]: যখন ইউজার এই স্ক্রিন থেকে বের হয়ে যাবে, তখন মেমরি ক্লিয়ার করে দিবে
+  useEffect(() => {
+    return () => {
+      // কম্পোনেন্ট আনমাউন্ট হওয়ার সময় সমস্ত প্রি-লোড ডাটা মুছে ফেলা হলো
+      global.preloadedShortsData = {}; 
+      console.log("Search screen exited: Preloaded shorts data cleared from memory.");
+    };
+  }, []);
 
   useEffect(() => {
     if (!query) {
@@ -95,6 +106,23 @@ export default function SearchSettingScreen() {
     setSuggestions([]);
     setShowResults(true);
     fetchSearchResults(text.trim());
+  };
+
+  // [আপডেটেড লজিক]: কোনো লিমিট ছাড়া সমস্ত শর্টস প্রি-লোড করবে
+  const preloadShortsData = async (shortsArray) => {
+    shortsArray.forEach(async (short) => {
+      if (!global.preloadedShortsData[short.id]) {
+         try {
+           const res = await fetch(`https://www.youtube.com/shorts/${short.id}`, { 
+             headers: { 'User-Agent': DESKTOP_AGENT } 
+           });
+           const text = await res.text();
+           global.preloadedShortsData[short.id] = text; 
+         } catch(e) {
+           console.log("Preload Failed for:", short.id);
+         }
+      }
+    });
   };
 
   const fetchSearchResults = async (searchQuery) => {
@@ -202,10 +230,12 @@ export default function SearchSettingScreen() {
       }
     });
     
-    const formattedShorts = Array.from(uniqueShortsMap.values()).slice(0, 15);
+    const formattedShorts = Array.from(uniqueShortsMap.values());
 
     if (formattedShorts.length > 0) {
       finalFeed.push({ type: 'shorts_shelf', id: 'shorts_' + Date.now(), shorts: formattedShorts });
+      // কলব্যাক: যতগুলো শর্টস আসবে সবগুলোই প্রি-লোড হবে
+      preloadShortsData(formattedShorts);
     }
 
     const uniqueVideosMap = new Map();
