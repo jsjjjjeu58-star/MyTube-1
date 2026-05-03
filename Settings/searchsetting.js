@@ -16,7 +16,10 @@ export default function SearchSettingScreen() {
   const [query, setQuery] = useState('');
   const [history, setHistory] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
-  const [hasSearched, setHasSearched] = useState(false);
+  
+  // [ফিক্স ২]: নতুন স্টেট যা শুধু রেজাল্ট এবং হিস্ট্রি টগল করবে
+  const [showResults, setShowResults] = useState(false);
+  
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
@@ -41,7 +44,8 @@ export default function SearchSettingScreen() {
 
   const handleTextChange = async (text) => {
     setQuery(text);
-    if (hasSearched) setHasSearched(false);
+    if (showResults) setShowResults(false);
+    
     if (text.trim().length > 0) {
       try {
         const res = await fetch(`http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(text)}`);
@@ -61,7 +65,7 @@ export default function SearchSettingScreen() {
     const text = typeof searchTerm === 'string' ? searchTerm : query;
     if (text.trim().length === 0) return;
 
-    // কিবোর্ড জোরপূর্বক হাইড করা হচ্ছে
+    // কিবোর্ড জোরপূর্বক হাইড করা হচ্ছে এবং রেজাল্ট অন করা হচ্ছে
     inputRef.current?.blur();
     Keyboard.dismiss();
 
@@ -75,12 +79,12 @@ export default function SearchSettingScreen() {
     saveHistory(text.trim());
     setQuery(text.trim());
     setSuggestions([]);
+    setShowResults(true); // রেজাল্ট দেখানোর পারমিশন
     fetchSearchResults(text.trim());
   };
 
   const fetchSearchResults = async (searchQuery) => {
     setIsSearching(true);
-    setHasSearched(true);
     setSearchResults([]);
     try {
       const response = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
@@ -138,7 +142,8 @@ export default function SearchSettingScreen() {
              extractedShorts.push({
                 videoId: node.videoRenderer.videoId,
                 headline: { simpleText: node.videoRenderer.title?.runs?.[0]?.text },
-                viewCountText: { simpleText: node.videoRenderer.shortViewCountText?.simpleText || node.videoRenderer.viewCountText?.simpleText }
+                viewCountText: { simpleText: node.videoRenderer.shortViewCountText?.simpleText || node.videoRenderer.viewCountText?.simpleText },
+                thumbnail: node.videoRenderer.thumbnail // [ফিক্স ১]: থাম্বনেইল অবজেক্ট পাস করা হলো
              });
           } else {
              extractedVideos.push(node.videoRenderer);
@@ -169,11 +174,17 @@ export default function SearchSettingScreen() {
 
     const uniqueShortsMap = new Map();
     extractedShorts.forEach(s => {
-      // [ফিক্স ১]: যেসব শর্টসের সঠিক আইডি বা টাইটেল নেই, সেগুলো ফিল্টার করে বাদ দেওয়া হলো
       if (s.videoId && s.headline?.simpleText && !uniqueShortsMap.has(s.videoId)) {
+        
+        // [ফিক্স ১]: ইউটিউবের এপিআই থেকে সরাসরি থাম্বনেইল এক্সট্রাক্ট করা হচ্ছে
+        let thumbUrl = `https://i.ytimg.com/vi/${s.videoId}/oardefault.jpg`;
+        if (s.thumbnail?.thumbnails?.length > 0) {
+            thumbUrl = s.thumbnail.thumbnails[0].url.split('?')[0]; // ಕ್লিয়ার ইমেজ ইউআরএল
+        }
+
         uniqueShortsMap.set(s.videoId, {
           id: s.videoId, title: s.headline.simpleText, views: s.viewCountText?.simpleText || 'N/A',
-          thumbnail: `https://i.ytimg.com/vi/${s.videoId}/oardefault.jpg`,
+          thumbnail: thumbUrl,
           type: 'short'
         });
       }
@@ -205,7 +216,6 @@ export default function SearchSettingScreen() {
     return { finalFeed, nextToken };
   };
 
-  // [ফিক্স ৩]: ন্যাভিগেশনের সময় সব ইনপুট ফোকাস সরিয়ে দেওয়া হচ্ছে
   const navigateToPlayer = (item) => {
     inputRef.current?.blur();
     Keyboard.dismiss();
@@ -215,7 +225,6 @@ export default function SearchSettingScreen() {
   const navigateToShorts = (short) => {
     inputRef.current?.blur();
     Keyboard.dismiss();
-    // [ফিক্স ২]: ৩টি প্যারামিটার পাঠানো হচ্ছে যাতে ভুল শর্টস ওপেন না হয়
     navigation.navigate('Shorts', { initialVideoId: short.id, videoId: short.id, videoData: short });
   };
 
@@ -310,17 +319,18 @@ export default function SearchSettingScreen() {
             value={query} 
             onChangeText={handleTextChange} 
             onSubmitEditing={() => handleSearchSubmit(query)} 
-            onFocus={() => { if (hasSearched) setHasSearched(false); }}
+            // [ফিক্স ২]: শুধুমাত্র সার্চ বক্সে চাপ দিলেই রেজাল্ট হাইড হয়ে হিস্ট্রি/কিবোর্ড আসবে
+            onFocus={() => setShowResults(false)}
             autoCorrect={false}
             autoCapitalize="none"
           />
-          {query.length > 0 && <TouchableOpacity onPress={() => { setQuery(''); setHasSearched(false); inputRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color="#AAA" /></TouchableOpacity>}
+          {query.length > 0 && <TouchableOpacity onPress={() => { setQuery(''); setShowResults(false); inputRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color="#AAA" /></TouchableOpacity>}
         </View>
       </View>
 
-      {/* [ফিক্স ৩]: display: none ব্যবহার করে সার্চ রেজাল্ট মেমোরিতে ধরে রাখা হচ্ছে, যাতে স্ক্রল পজিশন না হারায় */}
+      {/* [ফিক্স ২]: কন্ডিশনাল রেন্ডারিং ব্যবহার করে ফোকাস এবং রেজাল্ট কন্ট্রোল করা হচ্ছে */}
       <View style={{ flex: 1 }}>
-        <View style={{ flex: 1, display: !hasSearched ? 'flex' : 'none' }}>
+        {!showResults ? (
           <FlatList 
             data={query ? suggestions : history} 
             keyExtractor={(item, index) => index.toString()} 
@@ -330,23 +340,23 @@ export default function SearchSettingScreen() {
                 <Text style={styles.historyText}>{item}</Text>
               </TouchableOpacity>
           )} keyboardShouldPersistTaps="handled" />
-        </View>
-
-        <View style={{ flex: 1, display: hasSearched ? 'flex' : 'none' }}>
-          {isSearching ? (
-            <View style={styles.center}><ActivityIndicator size="large" color="#FF0000" /></View>
-          ) : (
-            <FlatList 
-              data={searchResults} 
-              keyExtractor={(item, index) => item.id + '_' + index.toString()} 
-              renderItem={renderItem} 
-              onEndReached={handleLoadMore} 
-              onEndReachedThreshold={0.5} 
-              ListFooterComponent={isLoadingMore && <ActivityIndicator color="#FF0000" style={{ margin: 20 }} />} 
-              contentContainerStyle={{ paddingBottom: 20 }} 
-            />
-          )}
-        </View>
+        ) : (
+          <>
+            {isSearching ? (
+              <View style={styles.center}><ActivityIndicator size="large" color="#FF0000" /></View>
+            ) : (
+              <FlatList 
+                data={searchResults} 
+                keyExtractor={(item, index) => item.id + '_' + index.toString()} 
+                renderItem={renderItem} 
+                onEndReached={handleLoadMore} 
+                onEndReachedThreshold={0.5} 
+                ListFooterComponent={isLoadingMore && <ActivityIndicator color="#FF0000" style={{ margin: 20 }} />} 
+                contentContainerStyle={{ paddingBottom: 20 }} 
+              />
+            )}
+          </>
+        )}
       </View>
     </SafeAreaView>
   );
