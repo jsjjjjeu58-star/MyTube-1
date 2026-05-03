@@ -53,7 +53,7 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // 🧠 স্মার্ট স্ক্যানার 
+  // 🧠 স্মার্ট স্ক্যানার (নতুন থেকে পুরাতন ক্রমানুসারে সাজানোর জন্য unshift ব্যবহৃত হয়েছে)
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     const stack = [{ node: rootNode, currentTitle: 'No Title Found' }];
     const seenIds = new Set();
@@ -92,7 +92,7 @@ export default function ChannelScreen() {
               ? `https://i.ytimg.com/vi/${vId}/mqdefault.jpg` 
               : `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
 
-          // নতুন ভিডিওগুলো আগে রাখার লজিক
+          // 🎯 ভিডিও এবং শর্টস দুটোই নতুন থেকে পুরাতন ক্রমে সাজবে
           categorizedData[tabType].unshift({
             id: String(vId),
             title: String(newTitle),
@@ -124,7 +124,7 @@ export default function ChannelScreen() {
     return null;
   };
 
-  // 🔄 API দিয়ে রিফ্রেশ করার ফাংশন
+  // 🔄 API দিয়ে ভিডিও এবং শর্টস রিফ্রেশ করার ফাংশন
   const reFetchInitialViaApi = async (currentApiKey, vEndpoint, sEndpoint) => {
     try {
         const fetchTabViaApi = async (endpoint, tabName) => {
@@ -147,6 +147,7 @@ export default function ChannelScreen() {
             return newData;
         };
 
+        // ভিডিও এবং শর্টস একসাথে API এর মাধ্যমে লোড করা হচ্ছে
         const [apiVideos, apiShorts] = await Promise.all([
             fetchTabViaApi(vEndpoint, 'Videos'),
             fetchTabViaApi(sEndpoint, 'Shorts')
@@ -254,20 +255,31 @@ export default function ChannelScreen() {
         if (subs) setSubscriberCount(subs);
       }
 
-      // ⚡ যত দ্রুত সম্ভব API রিফ্রেশ ট্রিগার করা (কোনো বিলম্ব ছাড়া)
+      // ⚡ যত দ্রুত সম্ভব API রিফ্রেশ ট্রিগার করা (ভিডিও ও শর্টস উভয়ের জন্য)
       const currentApiKey = apiMatch ? apiMatch[1] : null;
-      if (currentApiKey && parsedVideosData) {
-          const tabs = parsedVideosData?.contents?.twoColumnBrowseResultsRenderer?.tabs || [];
+      if (currentApiKey) {
           let vEndpoint = null;
           let sEndpoint = null;
 
-          tabs.forEach(t => {
-              const title = String(t?.tabRenderer?.title).toLowerCase();
-              if (title.includes('video') || title.includes('ভিডিও')) vEndpoint = t?.tabRenderer?.endpoint?.browseEndpoint;
-              if (title.includes('short') || title.includes('শর্ট')) sEndpoint = t?.tabRenderer?.endpoint?.browseEndpoint;
-          });
+          // 🎯 ভিডিও এবং শর্টস উভয়ের ডেটা থেকে Endpoint স্ক্যান করার শক্তিশালী লজিক
+          const extractEndpoints = (data) => {
+              const tabs = data?.contents?.twoColumnBrowseResultsRenderer?.tabs || 
+                           data?.contents?.singleColumnBrowseResultsRenderer?.tabs || [];
+              tabs.forEach(t => {
+                  const title = String(t?.tabRenderer?.title).toLowerCase();
+                  if (title.includes('video') || title.includes('ভিডিও')) {
+                      vEndpoint = vEndpoint || t?.tabRenderer?.endpoint?.browseEndpoint;
+                  }
+                  if (title.includes('short') || title.includes('শর্ট')) {
+                      sEndpoint = sEndpoint || t?.tabRenderer?.endpoint?.browseEndpoint;
+                  }
+              });
+          };
 
-          // সরাসরি ফাংশনটি কল করা হলো (ব্যাকগ্রাউন্ডে অ্যাসিনক্রোনাসলি চলবে)
+          extractEndpoints(parsedVideosData); // প্রথমে ভিডিও পেজ থেকে খুঁজবে
+          extractEndpoints(parsedShortsData); // না পেলে শর্টস পেজ থেকেও খুঁজবে
+
+          // কোনো অপেক্ষা ছাড়াই সরাসরি ব্যাকগ্রাউন্ডে API কল করা হলো
           reFetchInitialViaApi(currentApiKey, vEndpoint, sEndpoint);
       }
 
