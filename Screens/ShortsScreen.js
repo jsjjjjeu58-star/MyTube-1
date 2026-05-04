@@ -4,6 +4,21 @@ import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
+import React, { useState, useCallback } from 'react';
+
+const [isVideoVisible, setIsVideoVisible] = useState(true);
+
+useFocusEffect(
+  useCallback(() => {
+    setIsVideoVisible(true); // স্ক্রিনে থাকলে ভিডিও দেখাবে
+    return () => {
+      setIsVideoVisible(false); // ব্যাক বাটন চাপলেই ভিডিও ধ্বংস হয়ে যাবে!
+    };
+  }, [])
+);
+
+// আর যেখানে ভিডিও প্লেয়ারের কোড আছে সেখানে চেকটি বসিয়ে দিন:
+// {isVideoVisible && <VideoPlayer ... />}
 
 // ৪টি আলাদা কোয়ালিটির জন্য ৪টি ভিন্ন মোবাইলের সুরত (User-Agents)
 const UAS = {
