@@ -32,7 +32,7 @@ export default function GlobalPlayer() {
   const [playerState, setPlayerState] = useState('hidden'); 
   const [videoData, setVideoData] = useState(null);
   const [streamUrl, setStreamUrl] = useState(null);
-  const [audioOnlyUrl, setAudioOnlyUrl] = useState(null); // [NEW] শুধু অডিও লিংক রাখার জন্য
+  const [audioOnlyUrl, setAudioOnlyUrl] = useState(null); // শুধুমাত্র অডিও লিংক
   const [streamMode, setStreamMode] = useState('combined'); 
   const [isPlaying, setIsPlaying] = useState(true);
   const [isAudioMode, setIsAudioMode] = useState(false);
@@ -88,7 +88,7 @@ export default function GlobalPlayer() {
       if (json.success && json.url) {
           setStreamMode(json.streamType || 'combined');
           setStreamUrl(json.url);
-          setAudioOnlyUrl(json.audioUrl || null); // [NEW] অডিও লিংক সেভ করা হচ্ছে
+          setAudioOnlyUrl(json.audioUrl || null); 
 
           if (json.streamType === 'separate' && json.audioUrl) {
               await syncAudioRef.current.unloadAsync().catch(()=>{});
@@ -106,7 +106,7 @@ export default function GlobalPlayer() {
 
         if (streamMode === 'separate') {
             if (!isAudioMode) {
-                // ভিডিও মোডে থাকলে অডিও রিফ সিংক হবে
+                // ভিডিও মোড সিংক
                 try {
                     const audioStatus = await syncAudioRef.current.getStatusAsync();
                     if (audioStatus.isLoaded) {
@@ -118,7 +118,7 @@ export default function GlobalPlayer() {
                     }
                 } catch(e) {}
             } else {
-                // [NEW] অডিও মোডে থাকলে ডাবল সাউন্ড বন্ধ করার জন্য সিংক অডিও পজ থাকবে
+                // অডিও মোডে থাকলে ডাবল সাউন্ড অফ
                 try {
                     const audioStatus = await syncAudioRef.current.getStatusAsync();
                     if (audioStatus.isLoaded && audioStatus.isPlaying) {
@@ -177,13 +177,25 @@ export default function GlobalPlayer() {
     });
 
     const audioModeSub = DeviceEventEmitter.addListener('toggleAudioMode', async (isAudio) => {
-        seekPosRef.current = currentTime; // [NEW] মোড চেঞ্জ করার সময় সময়টা সেভ করে রাখা
+        // [FIXED] সঠিক সময়টি বের করে সেভ করা হচ্ছে
+        if (videoRef.current) {
+            const status = await videoRef.current.getStatusAsync();
+            if (status && status.isLoaded) {
+                seekPosRef.current = status.positionMillis;
+            }
+        }
+        
         setIsAudioMode(isAudio);
         await setBackgroundAudio(isAudio); 
+
+        // separate মোড হলে প্লেয়ার রিস্টার্ট করে পজিশন ঠিক রাখা হবে
+        if (streamMode === 'separate') {
+            setVideoKey(Date.now().toString()); 
+        }
     });
 
     return () => { playSub.remove(); qualitySub.remove(); audioModeSub.remove(); };
-  }, [streamMode, currentTime]);
+  }, [streamMode]); // [FIXED] currentTime সরানো হয়েছে পারফরম্যান্সের জন্য
 
   const changeSpeed = async (speed) => {
     setPlaybackSpeed(speed);
@@ -260,7 +272,7 @@ export default function GlobalPlayer() {
   if (playerState === 'hidden') return null;
   const isFull = playerState === 'full';
 
-  // [NEW] ডাটা সেভ করার লজিক: separate হলে এবং audio mode থাকলে শুধু audioUrl প্লে হবে
+  // ডাটা সেভ করার লজিক: separate হলে এবং audio mode থাকলে শুধু audioUrl প্লে হবে
   let activeSourceUrl = streamUrl;
   if (isAudioMode && streamMode === 'separate' && audioOnlyUrl) {
       activeSourceUrl = audioOnlyUrl;
@@ -276,7 +288,7 @@ export default function GlobalPlayer() {
                     source={{ uri: activeSourceUrl }} 
                     style={styles.video} 
                     shouldPlay={isPlaying} 
-                    positionMillis={seekPosRef.current}
+                    positionMillis={seekPosRef.current} // এখানেই পজিশন পুনরায় স্টার্ট হয়
                     isMuted={streamMode === 'separate' && !isAudioMode}
                     onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
                     useNativeControls={false} 
@@ -284,7 +296,7 @@ export default function GlobalPlayer() {
                 />
             )}
 
-            {/* [NEW] অডিও মোড চললে ভিডিও ঢেকে দেওয়ার জন্য ওভারলে (Combined এবং Separate দুটোর জন্যই) */}
+            {/* অডিও মোড চললে ভিডিও ঢেকে দেওয়ার জন্য ওভারলে */}
             {isAudioMode && (
                 <View style={styles.audioModeOverlay}>
                     {videoData?.thumbnail && (
@@ -406,7 +418,7 @@ const styles = StyleSheet.create({
   videoWrapper: { flex: 1, position: 'relative', justifyContent: 'center' },
   video: { width: '100%', height: '100%' },
 
-  // [NEW] Audio Mode Overlay Styles
+  // Audio Mode Overlay Styles
   audioModeOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 5, backgroundColor: '#111' },
   audioBlurThumb: { position: 'absolute', width: '100%', height: '100%', opacity: 0.6 },
   audioOverlayDarkener: { position: 'absolute', width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)' },
