@@ -10,10 +10,9 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 
 LogBox.ignoreLogs(['[expo-av]', 'Video component from `expo-av`']);
 
+// ফিক্সড ডাইমেনশন
 const windowDim = Dimensions.get('window');
 const PORTRAIT_WIDTH = Math.min(windowDim.width, windowDim.height);
-const PORTRAIT_HEIGHT = Math.max(windowDim.width, windowDim.height);
-
 const PLAYER_HEIGHT = (PORTRAIT_WIDTH * 9) / 16;
 const MINI_WIDTH = PORTRAIT_WIDTH * 0.45;
 const MINI_HEIGHT = (MINI_WIDTH * 9) / 16;
@@ -46,9 +45,6 @@ export default function GlobalPlayer() {
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(1);
-  
-  // 🚨 আপনার লজিক: ভিডিওকে নতুন করে রিফ্রেশ করার আইন 🚨
-  const [refreshKey, setRefreshKey] = useState(0); 
 
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef(null);
@@ -110,33 +106,21 @@ export default function GlobalPlayer() {
       baseScaleRef.current = 1;
   }, [playerState]);
 
-  // 🚨 ফুলস্ক্রিন থেকে ফেরার সময় "নতুন ভিডিওর আইন" প্রয়োগ 🚨
+  // 🚨 আপনার লজিক: কোনো রিলোড বা জটিলতা ছাড়া সাধারণ স্ক্রিনে ফেরা 🚨
   const toggleFullscreen = async () => {
     try {
         if (isFullscreen) {
-            // ১. স্ক্রিন সোজা হওয়ার নির্দেশ
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
             setIsFullscreen(false);
-            setPlayerState('full'); 
+            setPlayerState('full'); // সাধারণ স্ক্রিনে ফিরে যাবে
             scale.setValue(1); 
             baseScaleRef.current = 1;
-            
-            // ২. ফোনটি সোজা হওয়ার জন্য ২০০ মিলি-সেকেন্ড সময় দেওয়া হলো
-            // ৩. তারপর নতুন ভিডিওর মতো প্লেয়ারটিকে রিফ্রেশ করা হলো
-            setTimeout(() => {
-                setRefreshKey(prev => prev + 1); 
-            }, 200);
-
         } else {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
             setIsFullscreen(true);
             setPlayerState('fullscreen');
             scale.setValue(1); 
             baseScaleRef.current = 1;
-            
-            setTimeout(() => {
-                setRefreshKey(prev => prev + 1);
-            }, 200);
         }
     } catch (error) { console.log(error); }
   };
@@ -170,7 +154,6 @@ export default function GlobalPlayer() {
       
       scale.setValue(1);
       baseScaleRef.current = 1;
-      setRefreshKey(prev => prev + 1); // নতুন ভিডিওর আইন
       triggerControls();
 
       await syncAudioRef.current.unloadAsync().catch(()=>{});
@@ -327,7 +310,7 @@ export default function GlobalPlayer() {
       pan.flattenOffset();
       let x = pan.x._value, y = pan.y._value;
       if (x > 10) x = 10; if (x < -(PORTRAIT_WIDTH - MINI_WIDTH - 20)) x = -(PORTRAIT_WIDTH - MINI_WIDTH - 20);
-      if (y > 20) y = 20; if (y < -(PORTRAIT_HEIGHT - MINI_HEIGHT - 120)) y = -(PORTRAIT_HEIGHT - MINI_HEIGHT - 120);
+      if (y > 20) y = 20; if (y < -(Dimensions.get('window').height - MINI_HEIGHT - 120)) y = -(Dimensions.get('window').height - MINI_HEIGHT - 120);
       Animated.spring(pan, { toValue: { x, y }, friction: 6, useNativeDriver: false }).start();
     }
   })).current;
@@ -384,11 +367,10 @@ export default function GlobalPlayer() {
         ]} 
         {...(!isInteractiveFull ? miniPanResponder.panHandlers : {})}
     >
-      <View style={playerState === 'center' || playerState === 'fullscreen' ? styles.videoWrapperCentered : styles.videoWrapper}>
+      <View style={styles.videoWrapper}>
         
-        {/* 🚨 এখানে key হিসেবে refreshKey দেওয়া হলো যাতে ফুলস্ক্রিন থেকে ফেরার সময় এটি রিফ্রেশ হয় 🚨 */}
         {streamUrl && !fallbackData && !isAudioMode && (
-          <Animated.View key={refreshKey} style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
+          <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
               <VideoView 
                 ref={videoViewRef} 
                 player={player} 
@@ -484,14 +466,14 @@ export default function GlobalPlayer() {
 
 const styles = StyleSheet.create({
   fullscreenContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999, backgroundColor: '#000', overflow: 'hidden' }, 
-  fullContainer: { position: 'absolute', top: 55, left: 0, width: PORTRAIT_WIDTH, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
-  centerContainer: { position: 'absolute', top: 0, left: 0, width: PORTRAIT_WIDTH, height: PORTRAIT_HEIGHT, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  // 🚨 ফুলস্ক্রিন থেকে ফেরার সময় সাধারণ স্ক্রিন তার নির্দিষ্ট মাপে (১০০% প্রশস্ত) ফিরে আসবে 🚨
+  fullContainer: { position: 'absolute', top: 55, left: 0, right: 0, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
+  centerContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   miniContainer: { position: 'absolute', bottom: 100, right: 20, width: MINI_WIDTH, height: MINI_HEIGHT, backgroundColor: '#000', borderRadius: 15, overflow: 'hidden', elevation: 10, borderWidth: 1, borderColor: '#00FF00' },
   
   videoWrapper: { flex: 1, justifyContent: 'center', width: '100%', height: '100%' },
-  videoWrapperCentered: { width: '100%', height: '100%', justifyContent: 'center', position: 'relative' },
-  animatedVideoWrapper: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }, 
-  video: { width: '100%', height: '100%' },
+  animatedVideoWrapper: { flex: 1, width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }, 
+  video: { flex: 1, width: '100%', height: '100%' },
   
   tapOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', zIndex: 5 }, 
   tapHalf: { flex: 1 },
