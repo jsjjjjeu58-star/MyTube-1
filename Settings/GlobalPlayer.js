@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, Animated, PanResponder, TouchableOpacity, Text, LogBox, BackHandler, TouchableWithoutFeedback, useWindowDimensions } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video'; 
 import { Audio } from 'expo-av'; 
 import { Ionicons } from '@expo/vector-icons';
@@ -19,9 +19,9 @@ export default function GlobalPlayer() {
   const currentVideoIdRef = useRef(null);
   const fetchIdRef = useRef(0);
   
-  // 🚨 ফিক্স: সব সময় সঠিক মাপ নেওয়ার জন্য স্মার্ট ডাইমেনশন লজিক 🚨
+  // 🚨 স্ক্রিনের মাপ নেওয়ার স্মার্ট লজিক 🚨
   const { width, height } = useWindowDimensions();
-  const portraitWidth = Math.min(width, height); // ফোন যেভাবেই থাকুক, ছোট পাশটিই প্রস্থ হবে
+  const portraitWidth = Math.min(width, height); 
   const portraitHeight = Math.max(width, height); 
   
   const PLAYER_HEIGHT = (portraitWidth * 9) / 16;
@@ -100,13 +100,18 @@ export default function GlobalPlayer() {
     return () => backHandler.remove();
   }, [playerState, navigation, isFullscreen]);
 
+  // 🚨 ফিক্স: প্লেয়ারের অবস্থা বদলালে জুম ১০০% রিসেট করা 🚨
   useEffect(() => {
-      Animated.spring(scale, { toValue: 1, useNativeDriver: false }).start();
+      scale.setValue(1);
       baseScaleRef.current = 1;
-  }, [playerState]);
+      Animated.spring(scale, { toValue: 1, useNativeDriver: false }).start();
+  }, [playerState, isFullscreen]);
 
-  // ফুলস্ক্রিন কন্ট্রোলার
   const toggleFullscreen = async () => {
+    // ফুলস্ক্রিন করার আগে জুম রিসেট
+    scale.setValue(1);
+    baseScaleRef.current = 1;
+    
     try {
         if (isFullscreen) {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
@@ -283,8 +288,8 @@ export default function GlobalPlayer() {
               });
           } 
           else if (Math.abs(gestureState.dx) < 15 && Math.abs(gestureState.dy) < 15) {
-              // 🚨 ফিক্স: ট্যাপের জন্য সঠিক স্ক্রিন সাইজ ব্যবহার করা হলো 🚨
-              const side = gestureState.x0 < (width / 2) ? 'left' : 'right';
+              const screenWidth = width;
+              const side = gestureState.x0 < (screenWidth / 2) ? 'left' : 'right';
               handleTap(side);
           }
       },
@@ -352,13 +357,22 @@ export default function GlobalPlayer() {
   if (playerState === 'hidden') return null;
   const isInteractiveFull = playerState === 'full' || playerState === 'center' || playerState === 'fullscreen';
 
+  // 🚨 ফিক্স: প্লেয়ারের মাপে জোর করে সাইজ ঠিক রাখা হলো 🚨
+  let containerStyle;
+  if (playerState === 'fullscreen') {
+      containerStyle = [styles.fullscreenContainer, { width: width, height: height }];
+  } else if (playerState === 'full') {
+      containerStyle = [styles.fullContainer, { width: portraitWidth, height: PLAYER_HEIGHT }];
+  } else if (playerState === 'center') {
+      containerStyle = [styles.centerContainer, { width: portraitWidth, height: portraitHeight }];
+  } else {
+      containerStyle = [styles.miniContainer, { width: MINI_WIDTH, height: MINI_HEIGHT }];
+  }
+
   return (
     <Animated.View 
         style={[
-            playerState === 'fullscreen' ? styles.fullscreenContainer : 
-            playerState === 'full' ? [styles.fullContainer, { height: PLAYER_HEIGHT }] : 
-            playerState === 'center' ? styles.centerContainer : 
-            [styles.miniContainer, { width: MINI_WIDTH, height: MINI_HEIGHT }], 
+            containerStyle, 
             playerState === 'mini' && { transform: pan.getTranslateTransform() }
         ]} 
         {...(!isInteractiveFull ? miniPanResponder.panHandlers : {})}
@@ -370,7 +384,7 @@ export default function GlobalPlayer() {
               <VideoView 
                 ref={videoViewRef} 
                 player={player} 
-                style={styles.video} 
+                style={{ width: '100%', height: '100%' }} // জোর করে ফুল সাইজ
                 contentFit="contain"
                 nativeControls={false} 
               />
@@ -461,15 +475,14 @@ export default function GlobalPlayer() {
 }
 
 const styles = StyleSheet.create({
-  fullscreenContainer: { ...StyleSheet.absoluteFillObject, zIndex: 99999, backgroundColor: '#000', overflow: 'hidden' }, 
-  fullContainer: { position: 'absolute', top: 55, left: 0, right: 0, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
-  centerContainer: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  fullscreenContainer: { position: 'absolute', top: 0, left: 0, zIndex: 99999, backgroundColor: '#000', overflow: 'hidden' }, 
+  fullContainer: { position: 'absolute', top: 55, left: 0, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
+  centerContainer: { position: 'absolute', top: 0, left: 0, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   miniContainer: { position: 'absolute', bottom: 100, right: 20, backgroundColor: '#000', borderRadius: 15, overflow: 'hidden', elevation: 10, borderWidth: 1, borderColor: '#00FF00' },
   
   videoWrapper: { flex: 1, justifyContent: 'center', width: '100%' },
   videoWrapperCentered: { width: '100%', height: '100%', justifyContent: 'center', position: 'relative' },
   animatedVideoWrapper: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }, 
-  video: { width: '100%', height: '100%' },
   
   tapOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', zIndex: 5 }, 
   tapHalf: { flex: 1 },
