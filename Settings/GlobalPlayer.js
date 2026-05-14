@@ -19,13 +19,15 @@ export default function GlobalPlayer() {
   const currentVideoIdRef = useRef(null);
   const fetchIdRef = useRef(0);
   
-  // 🚨 ডায়নামিক স্ক্রিন সাইজ (ফুলস্ক্রিন বিশৃঙ্খলা সমাধানের জন্য) 🚨
+  // 🚨 ফিক্স: সব সময় সঠিক মাপ নেওয়ার জন্য স্মার্ট ডাইমেনশন লজিক 🚨
   const { width, height } = useWindowDimensions();
-  const PLAYER_HEIGHT = (width * 9) / 16;
-  const MINI_WIDTH = width * 0.45;
+  const portraitWidth = Math.min(width, height); // ফোন যেভাবেই থাকুক, ছোট পাশটিই প্রস্থ হবে
+  const portraitHeight = Math.max(width, height); 
+  
+  const PLAYER_HEIGHT = (portraitWidth * 9) / 16;
+  const MINI_WIDTH = portraitWidth * 0.45;
   const MINI_HEIGHT = (MINI_WIDTH * 9) / 16;
   
-  // জুম এবং ট্যাপের জন্য Ref
   const scale = useRef(new Animated.Value(1)).current;
   const baseScaleRef = useRef(1);
   const initialDistanceRef = useRef(null);
@@ -103,6 +105,7 @@ export default function GlobalPlayer() {
       baseScaleRef.current = 1;
   }, [playerState]);
 
+  // ফুলস্ক্রিন কন্ট্রোলার
   const toggleFullscreen = async () => {
     try {
         if (isFullscreen) {
@@ -203,7 +206,6 @@ export default function GlobalPlayer() {
       triggerControls();
   };
 
-  // 🚨 ফিক্স ১: নিখুঁত ডাবল ট্যাপ লজিক 🚨
   const handleTap = (side) => {
       const now = Date.now();
       const DOUBLE_TAP_DELAY = 300; 
@@ -211,7 +213,7 @@ export default function GlobalPlayer() {
       if (lastTapRef.current.side === side && (now - lastTapRef.current.time) < DOUBLE_TAP_DELAY) {
           clearTimeout(tapTimeoutRef.current);
           lastTapRef.current = { time: 0, side: '' }; 
-          handleSkip(side === 'right' ? 10 : -10); // ডাবল ট্যাপ স্কিপ
+          handleSkip(side === 'right' ? 10 : -10); 
       } else {
           lastTapRef.current = { time: now, side };
           tapTimeoutRef.current = setTimeout(() => {
@@ -225,13 +227,12 @@ export default function GlobalPlayer() {
       }
   };
 
-  // 🚨 ফিক্স ২: সোয়াইপ এবং জুমকে ট্যাপ থেকে পুরোপুরি আলাদা করা হলো 🚨
   const videoPanResponder = useRef(PanResponder.create({
-      onStartShouldSetPanResponder: () => false, // ট্যাপকে ব্লক করবে না
+      onStartShouldSetPanResponder: () => false, 
       onMoveShouldSetPanResponder: (evt, gestureState) => {
           const touches = evt.nativeEvent.touches;
-          if (touches && touches.length >= 2) return true; // জুম হলে ধরবে
-          if (Math.abs(gestureState.dx) > 15 || Math.abs(gestureState.dy) > 15) return true; // সোয়াইপ হলে ধরবে
+          if (touches && touches.length >= 2) return true; 
+          if (Math.abs(gestureState.dx) > 15 || Math.abs(gestureState.dy) > 15) return true; 
           return false;
       },
       onPanResponderGrant: (evt) => {
@@ -281,6 +282,11 @@ export default function GlobalPlayer() {
                   return prev;
               });
           } 
+          else if (Math.abs(gestureState.dx) < 15 && Math.abs(gestureState.dy) < 15) {
+              // 🚨 ফিক্স: ট্যাপের জন্য সঠিক স্ক্রিন সাইজ ব্যবহার করা হলো 🚨
+              const side = gestureState.x0 < (width / 2) ? 'left' : 'right';
+              handleTap(side);
+          }
       },
       onPanResponderTerminate: () => {
           if (isZoomingRef.current) {
@@ -299,8 +305,8 @@ export default function GlobalPlayer() {
     onPanResponderRelease: () => {
       pan.flattenOffset();
       let x = pan.x._value, y = pan.y._value;
-      if (x > 10) x = 10; if (x < -(width - MINI_WIDTH - 20)) x = -(width - MINI_WIDTH - 20);
-      if (y > 20) y = 20; if (y < -(height - MINI_HEIGHT - 120)) y = -(height - MINI_HEIGHT - 120);
+      if (x > 10) x = 10; if (x < -(portraitWidth - MINI_WIDTH - 20)) x = -(portraitWidth - MINI_WIDTH - 20);
+      if (y > 20) y = 20; if (y < -(portraitHeight - MINI_HEIGHT - 120)) y = -(portraitHeight - MINI_HEIGHT - 120);
       Animated.spring(pan, { toValue: { x, y }, friction: 6, useNativeDriver: false }).start();
     }
   })).current;
@@ -371,7 +377,6 @@ export default function GlobalPlayer() {
           </Animated.View>
         )}
 
-        {/* 🚨 ফিক্স: ট্যাপ লেয়ার এবং সোয়াইপ/জুম লেয়ার আলাদা করা হলো 🚨 */}
         {isInteractiveFull && !fallbackData && (
             <View style={styles.tapOverlay} {...videoPanResponder.panHandlers}>
                 <TouchableWithoutFeedback onPress={() => handleTap('left')}><View style={styles.tapHalf} /></TouchableWithoutFeedback>
