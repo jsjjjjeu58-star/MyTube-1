@@ -11,7 +11,7 @@ import * as WebBrowser from 'expo-web-browser';
 
 LogBox.ignoreLogs(['[expo-av]', 'Video component from `expo-av`']);
 
-// 🚨 আপনার দেওয়া ফিক্সড ডাইমেনশন (হুবহু) 🚨
+// 🚨 আপনার দেওয়া ফিক্সড ডাইমেনশন লজিক (হুবহু) 🚨
 const windowDim = Dimensions.get('window');
 const PORTRAIT_WIDTH = Math.min(windowDim.width, windowDim.height);
 const PORTRAIT_HEIGHT = Math.max(windowDim.width, windowDim.height);
@@ -93,7 +93,7 @@ export default function GlobalPlayer() {
     return unsubscribe;
   }, [navigation, isFullscreen]);
 
-  // স্মার্ট ব্যাক নেভিগেশন (হোম বা যেখান থেকে ঢুকেছে সেখানে যাবে)
+  // স্মার্ট ব্যাক নেভিগেশন
   const handleSmartBack = () => {
       if (playerState === 'fullscreen') {
           toggleFullscreen(); 
@@ -127,13 +127,13 @@ export default function GlobalPlayer() {
       baseScaleRef.current = 1;
   }, [playerState]);
 
-  // 🚨 আপনার দেওয়া লজিক: কোনো রিলোড বা জটিলতা ছাড়া সাধারণ স্ক্রিনে ফেরা (হুবহু) 🚨
+  // 🚨 আপনার দেওয়া হুবহু লজিক (সব refreshKey বা রিলোড লজিক বাদ দেওয়া হয়েছে) 🚨
   const toggleFullscreen = async () => {
     try {
         if (isFullscreen) {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
             setIsFullscreen(false);
-            setPlayerState('full'); // সাধারণ স্ক্রিনে ফিরে যাবে
+            setPlayerState('full'); 
             scale.setValue(1); 
             baseScaleRef.current = 1;
         } else {
@@ -225,7 +225,7 @@ export default function GlobalPlayer() {
     }
   };
 
-  // 🚨 সাইলেন্ট স্কিপ (ডাবল ট্যাপে কিছু ভাসবে না)
+  // 🚨 সাইলেন্ট স্কিপ (ডাবল ট্যাপে কোনো অপশন ভাসবে না)
   const handleSkip = async (amount, isSilent = false) => {
       let newTime = player.currentTime + amount;
       if (newTime < 0) newTime = 0;
@@ -260,7 +260,7 @@ export default function GlobalPlayer() {
       }
   };
 
-  // 🚨 স্পিড চেঞ্জ ফাংশন (৩.০x পর্যন্ত)
+  // স্পিড চেঞ্জ ফাংশন (৩.০x পর্যন্ত)
   const changeSpeed = async (speed) => {
       setCurrentSpeed(speed);
       if (player) player.playbackRate = speed;
@@ -408,6 +408,7 @@ export default function GlobalPlayer() {
     >
       <View style={playerState === 'center' || playerState === 'fullscreen' ? styles.videoWrapperCentered : styles.videoWrapper}>
         
+        {/* 🚨 এখানে আর কোনো রিফ্রেশ 'key' নেই। একদম আপনার আপলোড করা লজিক 🚨 */}
         {streamUrl && !fallbackData && !isAudioMode && (
           <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
               <VideoView 
@@ -492,8 +493,8 @@ export default function GlobalPlayer() {
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
                     <Text style={styles.modalTitle}>Player Settings</Text>
                     
-                    {/* 🚨 ব্রাউজার ওপেন লজিক (ইউটিউব অ্যাপ বাইপাস) 🚨 */}
-                    <TouchableOpacity style={styles.menuItem} onPress={async () => {
+                    {/* 🚨 নিউ পাইপ লজিক: ডিপ লিংকিং বাইপাস করে ব্রাউজার খোলা 🚨 */}
+                    <TouchableOpacity style={styles.menuItem} onPress={() => {
                         setShowSettingsMenu(false);
                         const ytUrl = `https://www.youtube.com/watch?v=${currentVideoIdRef.current}?app=desktop`;
                         
@@ -576,7 +577,6 @@ export default function GlobalPlayer() {
 
 const styles = StyleSheet.create({
   fullscreenContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999, backgroundColor: '#000', overflow: 'hidden' }, 
-  // 🚨 আপনার দেওয়া ফিক্সড স্টাইল 🚨
   fullContainer: { position: 'absolute', top: 55, left: 0, width: PORTRAIT_WIDTH, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
   centerContainer: { position: 'absolute', top: 0, left: 0, width: PORTRAIT_WIDTH, height: PORTRAIT_HEIGHT, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   miniContainer: { position: 'absolute', bottom: 100, right: 20, width: MINI_WIDTH, height: MINI_HEIGHT, backgroundColor: '#000', borderRadius: 15, overflow: 'hidden', elevation: 10, borderWidth: 1, borderColor: '#00FF00' },
