@@ -66,27 +66,12 @@ export default function GlobalPlayer() {
   const streamModeRef = useRef('combined');
   const cachedAudioUrlRef = useRef(null); 
 
-  // 🚨 মূল ফিক্স ১: প্লেয়ার ইনিশিয়ালাইজেশনের ভেতরেই প্লে/সিঙ্ক লজিক সেট করা হলো 🚨
+  // প্লেয়ার ইনিশিয়ালাইজেশন
   const player = useVideoPlayer(videoSource, (p) => {
     if (!videoSource) return; 
     p.loop = false;
     p.playbackRate = currentSpeed; 
-
-    // নেটিভ প্লেয়ারকে বাফার করার জন্য কিছুটা সময় দিয়ে তারপর আগের জায়গায় স্কিপ করানো হলো
-    setTimeout(async () => {
-        try {
-            if (resumeTimeRef.current > 0) {
-                p.currentTime = resumeTimeRef.current;
-            }
-            p.play();
-
-            // সেপারেট স্ট্রিম হলে অডিওটিও ঠিক জায়গায় সিঙ্ক করে প্লে করতে হবে
-            if (streamModeRef.current === 'separate') {
-                await syncAudioRef.current.setPositionAsync(resumeTimeRef.current * 1000).catch(()=>{});
-                await syncAudioRef.current.playAsync().catch(()=>{});
-            }
-        } catch (error) { console.log(error); }
-    }, 600);
+    p.play();
   });
 
   const triggerControls = () => {
@@ -104,9 +89,7 @@ export default function GlobalPlayer() {
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
         });
-      } catch (e) {
-        console.log("Audio Setup Error:", e);
-      }
+      } catch (e) { console.log("Audio Setup Error:", e); }
     };
     setupAudio();
   }, []);
@@ -261,7 +244,7 @@ export default function GlobalPlayer() {
           }
 
       } else {
-          // 🚨 অডিও মোড থেকে ভিডিওতে ফেরা 🚨
+          // অডিও মোড থেকে ভিডিওতে ফেরা
           const status = await syncAudioRef.current.getStatusAsync();
           let resumeVideoTime = resumeTimeRef.current;
 
@@ -275,7 +258,6 @@ export default function GlobalPlayer() {
           }
 
           resumeTimeRef.current = resumeVideoTime;
-          // সোর্স সেট করার সাথে সাথেই উপরের useVideoPlayer হুকটি স্বয়ংক্রিয়ভাবে প্লেয়ার লোড করবে
           setVideoSource(streamUrl); 
       }
     });
@@ -284,7 +266,28 @@ export default function GlobalPlayer() {
         playSub.remove();
         audioModeSub.remove();
     };
-  }, [isFullscreen]);
+  }, [isFullscreen, streamUrl]);
+
+  // 🚨 মূল সমাধান: ভিডিও সোর্স ফিরে আসলে ফোর্স করে প্লে করানো 🚨
+  useEffect(() => {
+      let timeoutId;
+      if (!isAudioMode && videoSource && player) {
+          // নেটিভ প্লেয়ারকে বাফার করার জন্য ৮০০ মিলি-সেকেন্ড সময় দিয়ে তারপর প্লে করা হচ্ছে
+          timeoutId = setTimeout(async () => {
+              try {
+                  player.currentTime = resumeTimeRef.current;
+                  player.play();
+
+                  // যদি সেপারেট অডিও থাকে, সেটিও সিঙ্ক করে প্লে করতে হবে
+                  if (streamModeRef.current === 'separate') {
+                      await syncAudioRef.current.setPositionAsync(resumeTimeRef.current * 1000).catch(()=>{});
+                      await syncAudioRef.current.playAsync().catch(()=>{});
+                  }
+              } catch (e) { console.log("Resume Error: ", e); }
+          }, 800); 
+      }
+      return () => clearTimeout(timeoutId);
+  }, [videoSource, isAudioMode]);
 
   const fetchStreamUrl = async (vidId, targetQuality, fetchId) => {
     try {
@@ -534,7 +537,7 @@ export default function GlobalPlayer() {
             <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
                 {videoSource ? (
                     <VideoView 
-                        key={videoSource} // 🚨 মূল ফিক্স ২: সোর্স চেঞ্জ হলে নেটিভ লেআউট ফোর্স-রিলোড হবে 🚨
+                        key={videoSource} // ফোর্স রিলোড
                         ref={videoViewRef} 
                         player={player} 
                         style={styles.video} 
