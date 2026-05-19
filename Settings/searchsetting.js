@@ -81,30 +81,17 @@ export default function SearchSettingScreen() {
 
     // ইউটিউব লিংক চেক করা হচ্ছে
     const ytLinkMatch = text.match(/(?:youtu\.be\/|youtube\.com\/(?:.*v=|.*\/|.*embed\/))([^&?\s]{11})/);
-    
-    if (ytLinkMatch && ytLinkMatch[1]) {
-      const videoId = ytLinkMatch[1];
-      
-      // লিংক পাওয়া গেলে সরাসরি প্লে না করে, একটি ভিডিও অবজেক্ট তৈরি করে লিস্টে দেখানো হচ্ছে
-      const videoFromLink = {
-        type: 'video',
-        id: videoId,
-        title: 'Video from Link', // ভিডিওর আসল নাম ফেচ করা সময়সাপেক্ষ, তাই আপাতত এটি দেখানো হচ্ছে
-        channel: 'YouTube Video',
-        views: 'Click to play',
-        publishedTime: '',
-        thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, // ইউটিউবের ডিফল্ট হাই-কোয়ালিটি থাম্বনেইল
-        avatar: 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg'
-      };
 
-      setSearchResults([videoFromLink]); // সার্চ রেজাল্টে শুধু এই ভিডিওটি দেখানো হবে
-      setIsSearching(false);
-      return;
-    }
-
-    // যদি লিংক না হয়, তবে সাধারণ সার্চ অপটিমাইজেশন কাজ করবে
     InteractionManager.runAfterInteractions(() => {
-      fetchSearchResults(text.trim());
+      if (ytLinkMatch && ytLinkMatch[1]) {
+        const videoId = ytLinkMatch[1];
+        // লিংক পাওয়া গেলে সেই নির্দিষ্ট ভিডিও আইডি দিয়ে সার্চ রিকোয়েস্ট পাঠানো হচ্ছে
+        // ফলে ইউটিউব আসল টাইটেল, চ্যানেল অবতার, ভিউ ইত্যাদি সব সঠিক তথ্য রিটার্ন করবে
+        fetchSearchResults(videoId);
+      } else {
+        // যদি লিংক না হয়, তবে সাধারণ টেক্সট সার্চ হবে
+        fetchSearchResults(text.trim());
+      }
     });
   };
 
