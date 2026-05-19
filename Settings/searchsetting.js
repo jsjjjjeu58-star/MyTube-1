@@ -1,230 +1,328 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, SafeAreaView, Platform, StatusBar, Keyboard, ActivityIndicator, Image, Dimensions } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Share } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation, useIsFocused, useFocusEffect } from '@react-navigation/native';
 
-const { width } = Dimensions.get('window');
-const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+// ৪টি আলাদা কোয়ালিটির জন্য ৪টি ভিন্ন মোবাইলের সুরত (User-Agents)
+const UAS = {
+  anti: "Mozilla/5.0 (Linux; Android 11; LS5018 Build/RP1A.201005.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/106.0.5249.126 Mobile Safari/537.36", // JioPhone
+  low: "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.181 Mobile Safari/537.36", // Nexus 5
+  normal: "Mozilla/5.0 (Linux; Android 10; SM-A515F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36", // Galaxy A51
+  high: "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UD1A.230803.041) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36" // Pixel 8 Pro
+};
 
-global.searchHistory = global.searchHistory || [ 'বাংলা খবর লাইভ', 'নতুন নাটক ২০২৪', 'ইসলামিক গজল', 'Tech review bangla' ];
-
-export default function SearchSettingScreen() {
+export default function ShortsScreen({ initialVideoId, route }) {
   const navigation = useNavigation();
-  const isFocused = useIsFocused(); 
-  const [query, setQuery] = useState('');
-  const [history, setHistory] = useState(global.searchHistory);
-  const inputRef = useRef(null);
+  const isFocused = useIsFocused();
 
-  const [hasSearched, setHasSearched] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState([]);
-  const [subscribedChannels, setSubscribedChannels] = useState([]);
+  // [NEW LOGIC]: স্ক্রিন অ্যাক্টিভ আছে কি না তা ট্র্যাক করার স্টেট
+  const [isActive, setIsActive] = useState(true);
 
-  useEffect(() => { const timeout = setTimeout(() => { inputRef.current?.focus(); }, 100); return () => clearTimeout(timeout); }, []);
+  const [isAutoSkipping, setIsAutoSkipping] = useState(false);
+  const [shortsLoading, setShortsLoading] = useState(true);
+  const [uaReady, setUaReady] = useState(false); 
+
+  const [showUnmuteBtn, setShowUnmuteBtn] = useState(false);
+  const [showActionBtns, setShowActionBtns] = useState(false);
+
+  const [deviceUserAgent, setDeviceUserAgent] = useState(UAS.normal);
+  const [webviewKey, setWebviewKey] = useState(Date.now().toString());
+
+  const [hardwareMockScript, setHardwareMockScript] = useState('');
+
+  const [currentUrl, setCurrentUrl] = useState(`https://m.youtube.com/shorts/${initialVideoId || route?.params?.videoId || ''}`);
+  const [currentChannel, setCurrentChannel] = useState({ name: 'Unknown Channel', isSubscribed: false });
+
+  const subscribeTimerRef = useRef(null);
+  const currentChannelNameRef = useRef(''); 
+  const shortsWebViewRef = useRef(null);
+
+  const targetUri = initialVideoId || route?.params?.videoId ? `https://m.youtube.com/shorts/${initialVideoId || route?.params?.videoId}` : "https://m.youtube.com/shorts";
+
+  // [CRITICAL FIX]: ব্যাক করার সাথে সাথে সম্পর্ক ছিন্ন করার লজিক
+  useFocusEffect(
+    useCallback(() => {
+      setIsActive(true);
+      return () => {
+        // স্ক্রিন থেকে বের হওয়ার সাথে সাথে ভিডিও পজ করে ধ্বংস করা হচ্ছে
+        if (shortsWebViewRef.current) {
+          shortsWebViewRef.current.injectJavaScript(`
+            try {
+              var v = document.querySelector('video');
+              if(v) { v.pause(); v.removeAttribute('src'); v.load(); }
+            } catch(e) {}
+            true;
+          `);
+        }
+        setIsActive(false);
+        setUaReady(false);
+      };
+    }, [])
+  );
 
   useEffect(() => {
-    const loadSubscriptions = async () => { try { const subs = await AsyncStorage.getItem('subscribedChannels'); if (subs) setSubscribedChannels(JSON.parse(subs)); } catch (e) {} };
-    if (isFocused) loadSubscriptions();
-  }, [isFocused]);
+    if (isFocused && isActive) {
+      setUaReady(false); 
+      setShortsLoading(true);
 
-  const handleTextChange = (text) => { setQuery(text); if (hasSearched) setHasSearched(false); };
-  const getHighQualityThumbnail = (thumbnailObj, videoId) => (!thumbnailObj || !thumbnailObj.thumbnails || thumbnailObj.thumbnails.length === 0) ? (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg') : (thumbnailObj.thumbnails[thumbnailObj.thumbnails.length - 1].url.startsWith('//') ? 'https:' + thumbnailObj.thumbnails[thumbnailObj.thumbnails.length - 1].url : thumbnailObj.thumbnails[thumbnailObj.thumbnails.length - 1].url);
+      const qualityVal = global.shortVideoQuality || 'Normal Video Quality';
 
-  const toggleSubscription = async (channelName, avatarUrl) => {
+      let newUA = UAS.normal;
+      let mockJS = '';
+
+      if (qualityVal === 'Anti Data Saver Mode' || qualityVal === 'Low Video Quality') {
+        newUA = qualityVal === 'Anti Data Saver Mode' ? UAS.anti : UAS.low;
+        mockJS = `
+          Object.defineProperty(navigator, 'connection', { get: function() { return { effectiveType: '2g', saveData: true, downlink: 0.1, rtt: 600 }; } });
+          Object.defineProperty(navigator, 'deviceMemory', { get: function() { return 1; } });
+          Object.defineProperty(navigator, 'hardwareConcurrency', { get: function() { return 2; } });
+          Object.defineProperty(window, 'devicePixelRatio', { get: function() { return 1; } });
+        `;
+      } 
+      else if (qualityVal === 'High Video Quality 4k-8k') {
+        newUA = UAS.high;
+        mockJS = `
+          Object.defineProperty(navigator, 'connection', { get: function() { return { effectiveType: '4g', saveData: false, downlink: 10.0, rtt: 50 }; } });
+          Object.defineProperty(navigator, 'deviceMemory', { get: function() { return 8; } });
+          Object.defineProperty(navigator, 'hardwareConcurrency', { get: function() { return 8; } });
+          Object.defineProperty(window, 'devicePixelRatio', { get: function() { return 3; } });
+        `;
+      } 
+      else {
+        newUA = UAS.normal;
+        mockJS = `
+          Object.defineProperty(navigator, 'connection', { get: function() { return { effectiveType: '3g', saveData: false, downlink: 1.5, rtt: 150 }; } });
+          Object.defineProperty(window, 'devicePixelRatio', { get: function() { return 2; } });
+        `;
+      }
+
+      setDeviceUserAgent(newUA);
+      setHardwareMockScript(mockJS);
+      setWebviewKey(Date.now().toString()); 
+
+      setTimeout(() => setUaReady(true), 100);
+    }
+  }, [isFocused, isActive]);
+
+  const restartActionTimer = () => {
+    setShowActionBtns(false);
+    if (subscribeTimerRef.current) clearTimeout(subscribeTimerRef.current);
+    subscribeTimerRef.current = setTimeout(() => {
+      setShowActionBtns(true);
+    }, 15000); 
+  };
+
+  useEffect(() => {
+    if (uaReady && isActive) {
+      setShowUnmuteBtn(false);
+      const timerLoading = setTimeout(() => setShortsLoading(false), 2000);
+      const timerUnmute = setTimeout(() => setShowUnmuteBtn(true), 10000); 
+      restartActionTimer();
+      return () => { 
+        clearTimeout(timerLoading); 
+        clearTimeout(timerUnmute); 
+      };
+    }
+  }, [uaReady, targetUri, isActive]);
+
+  const handleNativeSubscribe = async () => {
+    let channelNameToSave = currentChannel.name;
+    if (!channelNameToSave || channelNameToSave === 'Unknown Channel') return; 
+
     try {
-      let subs = await AsyncStorage.getItem('subscribedChannels'); subs = subs ? JSON.parse(subs) : [];
-      const exists = subs.some(s => s.name === channelName);
-      if (exists) subs = subs.filter(s => s.name !== channelName); else subs.push({ id: Date.now().toString(), name: channelName, avatar: avatarUrl }); 
-      await AsyncStorage.setItem('subscribedChannels', JSON.stringify(subs)); setSubscribedChannels(subs); 
+      let subs = await AsyncStorage.getItem('subscribedChannels');
+      let parsedSubs = subs ? JSON.parse(subs) : [];
+      const isSubbed = parsedSubs.some(s => s.name === channelNameToSave);
+
+      if (isSubbed) parsedSubs = parsedSubs.filter(s => s.name !== channelNameToSave);
+      else parsedSubs.push({ id: Date.now().toString(), name: channelNameToSave, avatar: 'https://via.placeholder.com/150' });
+
+      await AsyncStorage.setItem('subscribedChannels', JSON.stringify(parsedSubs));
+      setCurrentChannel(prev => ({ ...prev, isSubscribed: !isSubbed }));
     } catch (e) {}
   };
 
-  const fetchSearchResults = async (searchQuery) => {
-    setIsSearching(true); setHasSearched(true); setSearchResults([]);
+  const handleShare = async () => {
+    try { await Share.share({ message: `Check out this amazing short video: ${currentUrl}` }); } catch (error) {}
+  };
+
+  const handleUnmutePress = () => {
+    if (shortsWebViewRef.current) {
+      shortsWebViewRef.current.injectJavaScript(`
+        try {
+            var video = document.querySelector('video');
+            if(video) { video.muted = false; video.play().catch(function(e){}); }
+            var unmuteBtn = document.querySelector('.ytp-unmute, .ytm-unmute, button[aria-label*="unmute"]');
+            if (unmuteBtn) { unmuteBtn.click(); }
+        } catch(e) {}
+        true;
+      `);
+      setShowUnmuteBtn(false); 
+    }
+  };
+
+  const shortsInjectScript = `
+    (function() {
+        try { window.localStorage.clear(); window.sessionStorage.clear(); } catch(e) {}
+
+        try {
+            var css = 'ytm-mobile-topbar-renderer, ytm-pivot-bar-renderer, header, .ytm-bottom-sheet { display: none !important; } ' +
+                      'ytm-reel-player-overlay-actions, .reel-player-overlay-actions, ytm-like-button-renderer, ' +
+                      'ytm-dislike-button-renderer, ytm-comment-button-renderer, ytm-share-button-renderer, ' +
+                      'ytm-remix-button-renderer, [aria-label*="Like"], [aria-label*="Comment"], [aria-label*="Share"], ' +
+                      '[aria-label*="লাইক"], [aria-label*="কমেন্ট"] ' +
+                      '{ display: none !important; opacity: 0 !important; width: 0 !important; height: 0 !important; visibility: hidden !important; pointer-events: none !important; }';
+            var head = document.head || document.getElementsByTagName('head')[0];
+            var style = document.createElement('style');
+            style.type = 'text/css';
+            style.appendChild(document.createTextNode(css));
+            head.appendChild(style);
+        } catch(e) {}
+
+        setInterval(function() {
+            try {
+                var actionBars = document.querySelectorAll('ytm-reel-player-overlay-actions, .reel-player-overlay-actions, ytm-like-button-renderer');
+                for (var i = 0; i < actionBars.length; i++) {
+                    if(actionBars[i]) {
+                        actionBars[i].style.setProperty('display', 'none', 'important');
+                        actionBars[i].style.setProperty('opacity', '0', 'important');
+                        actionBars[i].style.setProperty('pointer-events', 'none', 'important');
+                        if (actionBars[i].parentElement) actionBars[i].parentElement.style.setProperty('display', 'none', 'important');
+                    }
+                }
+
+                var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button');
+                if (skipBtn) skipBtn.click();
+                
+                var adShowing = document.querySelector('.ad-showing');
+                var vidElement = document.querySelector('video');
+                if (adShowing && vidElement) vidElement.playbackRate = 16.0;
+
+                var activeReel = document.querySelector('ytm-reel-video-renderer[is-active]');
+                if (activeReel && window.ReactNativeWebView) {
+                    var linkElem = activeReel.querySelector('a[href^="/@"]');
+                    if (linkElem) {
+                        var channelName = linkElem.getAttribute('href').split('?')[0].replace('/', '');
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CHANNEL_SYNC', name: channelName }));
+                    }
+                }
+            } catch(err) {}
+        }, 200); 
+    })();
+    true;
+  `;
+
+  const checkSubscription = async (name) => {
     try {
-      const response = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}`, { headers: { 'User-Agent': DESKTOP_AGENT, 'Accept-Language': 'en-US,en;q=0.9' } });
-      const htmlText = await response.text();
-      let match = htmlText.match(/ytInitialData\s*=\s*({.+?});/) || htmlText.match(/var ytInitialData = (.*?);<\/script>/);
+        const subs = await AsyncStorage.getItem('subscribedChannels');
+        const parsedSubs = subs ? JSON.parse(subs) : [];
+        setCurrentChannel({ name: name, isSubscribed: parsedSubs.some(s => s.name === name) });
+    } catch(e){}
+  };
 
-      if (match && match[1]) {
-        const jsonData = JSON.parse(match[1]);
-        const extractedVideos = []; const extractedShorts = []; const extractedChannels = [];
-
-        const extractNodes = (node) => {
-          if (Array.isArray(node)) node.forEach(extractNodes);
-          else if (node && typeof node === 'object') {
-            if (node.videoRenderer) extractedVideos.push(node.videoRenderer); else if (node.reelItemRenderer) extractedShorts.push(node.reelItemRenderer); else if (node.channelRenderer) extractedChannels.push(node.channelRenderer); else Object.values(node).forEach(extractNodes);
+  const onShortsMessage = async (event) => {
+    const rawData = event.nativeEvent.data;
+    if (rawData === "SKIP_START") setIsAutoSkipping(true);
+    else if (rawData === "SKIP_END") setIsAutoSkipping(false);
+    else {
+        try {
+          const data = JSON.parse(rawData);
+          if (data.type === 'NEW_VIDEO_STARTED') if (data.url) setCurrentUrl(data.url); 
+          if (data.type === 'CHANNEL_SYNC' && data.name) {
+              if (currentChannelNameRef.current !== data.name) {
+                  currentChannelNameRef.current = data.name;
+                  checkSubscription(data.name);
+              }
           }
-        };
-        extractNodes(jsonData);
-
-        const finalFeed = [];
-        extractedChannels.forEach(ch => finalFeed.push({ id: ch.channelId, type: 'channel', title: ch.title?.simpleText || 'Channel', avatar: getHighQualityThumbnail(ch.thumbnail, null), subscribers: ch.subscriberCountText?.simpleText || ch.videoCountText?.simpleText || '', description: ch.descriptionSnippet?.runs?.map(r=>r.text).join('') || '' }));
-
-        const formattedVideos = extractedVideos.map(vid => ({ id: vid.videoId, title: vid.title?.runs?.[0]?.text || 'No Title', channel: vid.ownerText?.runs?.[0]?.text || vid.longBylineText?.runs?.[0]?.text || 'Channel', views: vid.shortViewCountText?.simpleText || vid.viewCountText?.simpleText || 'N/A', duration: vid.lengthText?.simpleText || '', publishedTime: vid.publishedTimeText?.simpleText || '', thumbnail: getHighQualityThumbnail(vid.thumbnail, vid.videoId), avatar: getHighQualityThumbnail(vid.channelThumbnailSupportedRenderers?.channelThumbnailWithLinkRenderer?.thumbnail, null), type: 'video' })).filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
-        const formattedShorts = extractedShorts.map(short => ({ id: short.videoId, title: short.headline?.simpleText || 'Short Video', views: short.viewCountText?.simpleText || 'N/A', thumbnail: `https://i.ytimg.com/vi/${short.videoId}/oardefault.jpg`, type: 'short' })).filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
-
-        if (formattedVideos.length > 0) finalFeed.push(formattedVideos[0]);
-        if (formattedShorts.length > 0) finalFeed.push({ id: 'shorts_shelf_' + Date.now(), type: 'shorts_shelf', shorts: formattedShorts });
-        if (formattedVideos.length > 1) finalFeed.push(...formattedVideos.slice(1));
-
-        setSearchResults(finalFeed);
-      }
-    } catch (e) {} finally { setIsSearching(false); }
-  };
-
-  const handleSearchSubmit = (searchTerm) => {
-    const text = typeof searchTerm === 'string' ? searchTerm : query; 
-    if (text.trim().length > 0) {
-      
-      // [নতুন লজিক]: ইউটিউবের সাধারণ লিংক কিংবা শর্টস লিংক সনাক্ত করার রেজেক্স (Regex)
-      const ytLinkMatch = text.match(/(?:youtu\.be\/|youtube\.com\/(?:.*v=|.*\/|.*embed\/|.*shorts\/))([^&?\s]{11})/);
-      
-      if (ytLinkMatch && ytLinkMatch[1]) {
-        const videoId = ytLinkMatch[1];
-        Keyboard.dismiss();
-        setQuery(''); // সার্চ বক্স ক্লিয়ার করার জন্য
-        
-        // প্লেয়ার সার্ভারের নিকট অন্য সব সাধারণ ভিডিওর মতোই ডাটা স্ট্রাকচার করে পাঠানো হলো
-        navigation.navigate('Player', { 
-          videoId: videoId, 
-          videoData: { 
-            id: videoId, 
-            title: 'Playing from Link...', 
-            channel: 'YouTube Link', 
-            views: 'N/A', 
-            duration: '', 
-            publishedTime: '',
-            thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-            avatar: 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg'
-          } 
-        });
-        return; // এখানেই ফাংশন বন্ধ করে দেওয়া হলো যাতে নিচে সাধারণ সার্চে না যায়
-      }
-
-      const updatedHistory = [text.trim(), ...history.filter(item => item !== text.trim())].slice(0, 10);
-      setHistory(updatedHistory); global.searchHistory = updatedHistory;
-      Keyboard.dismiss(); setQuery(text.trim()); fetchSearchResults(text.trim());
+        } catch (e) {}
     }
   };
 
-  const removeHistoryItem = (itemToRemove) => { const updatedHistory = history.filter(item => item !== itemToRemove); setHistory(updatedHistory); global.searchHistory = updatedHistory; };
+  // [DISCONNECT LOGIC]: যদি স্ক্রিন ফোকাস না থাকে বা ইউজার ব্যাক করে, তবে WebView একদম আনমাউন্ট (Unmount) হয়ে যাবে
+  if (!isActive || !isFocused) {
+    return <View style={styles.container} />; // পুরোপুরি কালো পর্দা (WebView ধ্বংস)
+  }
 
-  const renderHistoryItem = ({ item }) => (
-    <View style={styles.historyItemRow}>
-      <TouchableOpacity style={styles.historyClickableArea} onPress={() => handleSearchSubmit(item)}><Ionicons name="time-outline" size={24} color="#AAA" style={styles.historyIcon} /><Text style={styles.historyText} numberOfLines={1}>{item}</Text></TouchableOpacity>
-      <View style={styles.historyActions}>
-        <TouchableOpacity style={styles.actionIcon} onPress={() => { setQuery(item); setHasSearched(false); }}><Ionicons name="arrow-up-left" size={22} color="#AAA" /></TouchableOpacity>
-        <TouchableOpacity style={styles.actionIcon} onPress={() => removeHistoryItem(item)}><Ionicons name="close" size={22} color="#666" /></TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderFeedItem = ({ item }) => {
-    if (item.type === 'channel') {
-      const isSubbed = subscribedChannels.some(sub => sub.name === item.title); 
-      return (
-        <TouchableOpacity style={styles.channelCard} activeOpacity={0.8} onPress={() => navigation.navigate('Channel', { channelName: item.title, channelAvatar: item.avatar })}>
-          <Image source={{ uri: item.avatar }} style={styles.channelBigAvatar} />
-          <View style={styles.channelInfo}><Text style={styles.channelTitle} numberOfLines={1}>{item.title}</Text><Text style={styles.channelSubText}>{item.subscribers}</Text><Text style={styles.channelDesc} numberOfLines={1}>{item.description}</Text></View>
-          <TouchableOpacity style={[styles.subscribeBtn, isSubbed && styles.subscribedBtn]} onPress={() => toggleSubscription(item.title, item.avatar)}><Text style={[styles.subscribeText, isSubbed && styles.subscribedText]}>{isSubbed ? 'Subscribed' : 'Subscribe'}</Text></TouchableOpacity>
-        </TouchableOpacity>
-      );
-    }
-    if (item.type === 'shorts_shelf') {
-      return (
-        <View style={styles.shortsShelfContainer}>
-          <View style={styles.shortsShelfHeader}><Image source={{uri: 'https://upload.wikimedia.org/wikipedia/commons/e/e1/YouTube_play_buttom_icon_%282013-2017%29.svg'}} style={{width: 24, height: 24, tintColor: '#FF0000'}} /><Text style={styles.shortsShelfTitle}>Shorts</Text></View>
-          <FlatList horizontal showsHorizontalScrollIndicator={false} data={item.shorts} keyExtractor={(s, index) => s.id + index.toString()} contentContainerStyle={{ paddingHorizontal: 12 }} renderItem={({item: short}) => (
-              <TouchableOpacity style={styles.shortItemCard} activeOpacity={0.9} onPress={() => navigation.navigate('Shorts', { initialVideoId: short.id })}>
-                <Image source={{ uri: short.thumbnail }} style={styles.shortThumbnailImage} />
-                <View style={styles.shortTextOverlay}><Text style={styles.shortTitleText} numberOfLines={2}>{short.title}</Text><Text style={styles.shortViewsText}>{short.views}</Text></View>
-              </TouchableOpacity>
-            )} />
-        </View>
-      );
-    }
+  if (!uaReady) {
     return (
-      <View style={styles.videoCard}>
-        <TouchableOpacity activeOpacity={0.9} onPress={() => navigation.navigate('Player', { videoId: item.id, videoData: item })}>
-          <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
-          {item.duration ? <View style={styles.durationBadge}><Text style={styles.durationText}>{item.duration}</Text></View> : null}
-        </TouchableOpacity>
-        <View style={styles.videoInfo}>
-          <TouchableOpacity onPress={() => navigation.navigate('Channel', { channelName: item.channel, channelAvatar: item.avatar })}><Image source={{ uri: item.avatar }} style={styles.channelAvatar} /></TouchableOpacity>
-          <View style={styles.textContainer}>
-            <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Channel', { channelName: item.channel, channelAvatar: item.avatar })}><Text style={styles.videoMeta}>{item.channel} • {item.views} {item.publishedTime ? `• ${item.publishedTime}` : ''}</Text></TouchableOpacity>
-          </View>
-          <TouchableOpacity style={{ paddingLeft: 10 }}><Ionicons name="ellipsis-vertical" size={16} color="#AAA" /></TouchableOpacity>
-        </View>
+      <View style={styles.loadingOverlay}>
+        <ActivityIndicator size="large" color="#FF0000" />
       </View>
     );
-  };
+  }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor="#0F0F0F" barStyle="light-content" translucent={false} />
-      <View style={styles.searchHeader}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Ionicons name="arrow-back" size={24} color="#FFF" /></TouchableOpacity>
-        <View style={styles.searchInputContainer}>
-          <TextInput ref={inputRef} style={styles.searchInput} placeholder="Search YouTube" placeholderTextColor="#AAA" value={query} onChangeText={handleTextChange} onSubmitEditing={() => handleSearchSubmit(query)} returnKeyType="search" autoCapitalize="none" />
-          {query.length > 0 && (<TouchableOpacity onPress={() => { setQuery(''); setHasSearched(false); inputRef.current?.focus(); }} style={styles.clearBtn}><Ionicons name="close-circle" size={20} color="#AAA" /></TouchableOpacity>)}
-        </View>
-      </View>
+    <View style={styles.container}>
+      <WebView
+        key={webviewKey} 
+        ref={shortsWebViewRef} 
+        source={{ uri: targetUri }} 
+        userAgent={deviceUserAgent} 
+        injectedJavaScriptBeforeContentLoaded={hardwareMockScript} 
+        injectedJavaScript={shortsInjectScript} 
+        onMessage={onShortsMessage} 
+        onLoadEnd={() => setShortsLoading(false)} 
+        javaScriptEnabled={true} 
+        containerStyle={{ flex: 1 }} 
+        incognito={true} 
+        cacheEnabled={false} 
+        cacheMode="LOAD_NO_CACHE"
+      />
 
-      {!hasSearched ? (
-        <FlatList data={query.trim() === '' ? history : history.filter(item => item.toLowerCase().includes(query.toLowerCase()))} keyExtractor={(item, index) => item + index} renderItem={renderHistoryItem} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} ListEmptyComponent={ query.length > 0 ? ( <Text style={styles.emptyText}>No matching history. Press search to find videos.</Text> ) : null } />
-      ) : isSearching ? (
-         <View style={styles.centerLoading}><ActivityIndicator size="large" color="#FF0000" /><Text style={{color: '#AAA', marginTop: 10}}>Searching...</Text></View>
-      ) : (
-        <FlatList data={searchResults} keyExtractor={(item, index) => item.id + index.toString()} renderItem={renderFeedItem} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" ListEmptyComponent={<Text style={styles.emptyText}>No results found.</Text>} contentContainerStyle={{ paddingBottom: 70 }} />
+      {showActionBtns && currentChannel.name !== '' && currentChannel.name !== 'Unknown Channel' && (
+        <View style={styles.actionRowContainer} pointerEvents="box-none">
+            <TouchableOpacity 
+              style={[styles.nativeSubBtn, currentChannel.isSubscribed && styles.nativeSubbedBtn]} 
+              onPress={handleNativeSubscribe} activeOpacity={0.8}
+            >
+              <Text style={[styles.nativeSubText, currentChannel.isSubscribed && styles.nativeSubbedText]}>
+                {currentChannel.isSubscribed ? 'Subscribed' : 'Subscribe'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.nativeShareBtn} onPress={handleShare} activeOpacity={0.8}>
+              <Ionicons name="arrow-redo-outline" size={18} color="#FFF" />
+              <Text style={styles.nativeShareText}>Share</Text>
+            </TouchableOpacity>
+        </View>
       )}
-    </SafeAreaView>
+
+      {showUnmuteBtn && (
+        <TouchableOpacity activeOpacity={0.8} style={styles.unmuteBadge} onPress={handleUnmutePress}>
+          <Ionicons name="volume-mute" size={18} color="#FFF" />
+          <Text style={styles.unmuteText}>Unmute</Text>
+        </TouchableOpacity>
+      )}
+
+      {isAutoSkipping && (
+        <View style={styles.skipOverlay}>
+          <ActivityIndicator size="large" color="#FF0000" />
+          <Text style={styles.skipText}>অ্যাড ফিল্টার হচ্ছে...</Text>
+        </View>
+      )}
+
+      {shortsLoading && !isAutoSkipping && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#FF0000" />
+        </View>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0F0F0F', paddingTop: Platform.OS === 'android' ? 0 : 0 },
-  searchHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222', backgroundColor: '#0F0F0F' },
-  backBtn: { padding: 5, marginRight: 10 },
-  searchInputContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#222', borderRadius: 20, paddingHorizontal: 15, height: 40 },
-  searchInput: { flex: 1, color: '#FFF', fontSize: 16, paddingVertical: 0 },
-  clearBtn: { padding: 5 },
-  historyItemRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 15 },
-  historyClickableArea: { flex: 1, flexDirection: 'row', alignItems: 'center' },
-  historyIcon: { marginRight: 15 },
-  historyText: { color: '#FFF', fontSize: 16, flex: 1 },
-  historyActions: { flexDirection: 'row', alignItems: 'center' },
-  actionIcon: { padding: 10, marginLeft: 5 },
-  emptyText: { color: '#AAA', textAlign: 'center', marginTop: 30, fontSize: 14 },
-  centerLoading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  channelCard: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#222' },
-  channelBigAvatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#333' },
-  channelInfo: { flex: 1, marginLeft: 15 },
-  channelTitle: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
-  channelSubText: { color: '#AAA', fontSize: 12, marginTop: 2 },
-  channelDesc: { color: '#888', fontSize: 12, marginTop: 4 },
-  subscribeBtn: { backgroundColor: '#FFF', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, marginLeft: 10 },
-  subscribeText: { color: '#000', fontSize: 13, fontWeight: 'bold' },
-  subscribedBtn: { backgroundColor: '#222' },
-  subscribedText: { color: '#FFF' },
-  shortsShelfContainer: { paddingVertical: 15, borderTopWidth: 4, borderBottomWidth: 4, borderColor: '#222', marginBottom: 15, backgroundColor: '#0F0F0F' },
-  shortsShelfHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, marginBottom: 15 },
-  shortsShelfTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginLeft: 8 },
-  shortItemCard: { width: width * 0.4, height: width * 0.7, marginRight: 12, borderRadius: 10, overflow: 'hidden', backgroundColor: '#222', position: 'relative' },
-  shortThumbnailImage: { width: '100%', height: '100%', resizeMode: 'cover' }, 
-  shortTextOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10, paddingTop: 30, backgroundColor: 'rgba(0,0,0,0.6)' },
-  shortTitleText: { color: '#FFF', fontSize: 13, fontWeight: 'bold', marginBottom: 4, textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2, lineHeight: 18 },
-  shortViewsText: { color: '#FFF', fontSize: 11, fontWeight: 'bold', textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 },
-  videoCard: { marginBottom: 15 },
-  thumbnail: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#111' },
-  durationBadge: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0, 0, 0, 0.8)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
-  durationText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
-  videoInfo: { flexDirection: 'row', padding: 12, alignItems: 'flex-start' },
-  channelAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 12, backgroundColor: '#333' },
-  textContainer: { flex: 1, paddingRight: 10 },
-  videoTitle: { color: '#FFF', fontSize: 14, fontWeight: '500', marginBottom: 4 },
-  videoMeta: { color: '#AAA', fontSize: 12 }
+  container: { flex: 1, backgroundColor: '#000' },
+  loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+  skipOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
+  skipText: { color: '#FFF', marginTop: 15, fontWeight: 'bold' },
+  actionRowContainer: { position: 'absolute', bottom: "20%", left: 15, flexDirection: 'row', alignItems: 'center', zIndex: 99999, elevation: 100 },
+  nativeSubBtn: { backgroundColor: '#FF0000', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 25, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  nativeSubbedBtn: { backgroundColor: '#333', borderColor: '#555' },
+  nativeSubText: { color: '#FFF', fontWeight: 'bold', fontSize: 13 },
+  nativeSubbedText: { color: '#AAA' },
+  nativeShareBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 25, marginLeft: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+  nativeShareText: { color: '#FFF', fontWeight: 'bold', fontSize: 13, marginLeft: 6 },
+  unmuteBadge: { position: 'absolute', top: 50, right: 15, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255, 0, 0, 0.8)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', zIndex: 99999 }
 });
