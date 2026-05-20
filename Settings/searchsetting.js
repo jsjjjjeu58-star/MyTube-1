@@ -74,6 +74,7 @@ export default function SearchSettingScreen({ route }) {
     await AsyncStorage.setItem('myTubeSearchHistory', JSON.stringify(updatedHistory));
   };
 
+  // 🎯 [NEW]: লিংক থেকে সরাসরি ভিডিও প্লে করার স্মার্ট হ্যান্ডলার
   const handleSearchSubmit = async (searchTerm) => {
     const text = typeof searchTerm === 'string' ? searchTerm : query;
     if (text.trim().length === 0) return;
@@ -86,15 +87,74 @@ export default function SearchSettingScreen({ route }) {
     setSuggestions([]);
     setShowResults(true);
 
-    const ytLinkMatch = text.match(/(?:youtu\.be\/|youtube\.com\/(?:.*v=|.*\/|.*embed\/))([^&?\s]{11})/);
+    // লিংকে স্পেস থাকলে মুছে ক্লিন করে আইডি বের করা
+    const cleanUrl = text.replace(/\s/g, ''); 
+    const ytLinkMatch = cleanUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:.*v=|.*\/|.*embed\/))([^&?]{11})/);
 
     InteractionManager.runAfterInteractions(() => {
       if (ytLinkMatch && ytLinkMatch[1]) {
-        fetchSearchResults(ytLinkMatch[1]);
+        // যদি লিংক হয়, তবে সার্চ না করে সরাসরি ডাটা ফেচ করে প্লেয়ারে পাঠাবে
+        fetchSpecificVideoAndNavigate(ytLinkMatch[1]); 
       } else {
         fetchSearchResults(text.trim());
       }
     });
+  };
+
+  // 🚀 [NEW]: লিংকের ভিডিওটির ফুল মেটা-ডাটা বের করার স্পেশাল ফাংশন
+  const fetchSpecificVideoAndNavigate = async (targetId) => {
+    setIsSearching(true);
+    setSearchResults([]);
+    try {
+      const response = await fetch(`https://www.youtube.com/results?search_query=${targetId}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
+      const htmlText = await response.text();
+
+      let match = htmlText.match(/ytInitialData\s*=\s*({.+?});/) || htmlText.match(/var ytInitialData = (.*?);<\/script>/);
+
+      if (match && match[1]) {
+        const jsonData = JSON.parse(match[1]);
+        let foundVideo = null;
+
+        const extractNodes = (node) => {
+          if (foundVideo) return;
+          if (Array.isArray(node)) node.forEach(extractNodes);
+          else if (node && typeof node === 'object') {
+            if (node.videoRenderer && node.videoRenderer.videoId === targetId) {
+              foundVideo = node.videoRenderer;
+            } else {
+              Object.values(node).forEach(extractNodes);
+            }
+          }
+        };
+        extractNodes(jsonData);
+
+        if (foundVideo) {
+          const avatarUrl = foundVideo.channelThumbnailSupportedRenderers?.channelThumbnailWithLinkRenderer?.thumbnail?.thumbnails?.[0]?.url;
+          const channelUrl = foundVideo.ownerText?.runs?.[0]?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || '';
+
+          const fullVideoData = {
+            type: 'video', 
+            id: foundVideo.videoId, 
+            title: foundVideo.title?.runs?.[0]?.text,
+            channel: foundVideo.ownerText?.runs?.[0]?.text, 
+            views: foundVideo.shortViewCountText?.simpleText || 'N/A',
+            duration: foundVideo.lengthText?.simpleText || '', 
+            publishedTime: foundVideo.publishedTimeText?.simpleText || '',
+            thumbnail: foundVideo.thumbnail?.thumbnails?.[foundVideo.thumbnail.thumbnails.length - 1]?.url || `https://i.ytimg.com/vi/${foundVideo.videoId}/hqdefault.jpg`,
+            avatar: avatarUrl ? (avatarUrl.startsWith('//') ? 'https:' + avatarUrl : avatarUrl) : 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg',
+            channelUrl: channelUrl
+          };
+
+          setIsSearching(false);
+          // 🎯 সম্পূর্ণ ডাটা দিয়ে সরাসরি প্লেয়ার স্ক্রিনে নেভিগেট করা হচ্ছে
+          navigation.replace('Player', { videoId: targetId, videoData: fullVideoData });
+          return;
+        }
+      }
+    } catch (e) { console.log(e); }
+    
+    // কোনো কারণে নির্দিষ্ট ভিডিও না পেলে ফলব্যাক হিসেবে নরমাল সার্চ করবে
+    fetchSearchResults(targetId);
   };
 
   const fetchSearchResults = async (searchQuery) => {
@@ -138,7 +198,7 @@ export default function SearchSettingScreen({ route }) {
     } catch (e) {} finally { setIsLoadingMore(false); }
   };
 
-  // 🚨 [RESTORED]: শর্টস চেনার জন্য হারানো লজিকগুলো এখানে রিস্টোর করা হয়েছে 🚨
+  // 🚨 [RESTORED]: আপনার অরিজিনাল ডাটা প্রসেসর যেখানে শর্টস, চ্যানেল এবং ভিডিওর লজিক ছিল
   const processYouTubeData = (jsonData) => {
     const extractedVideos = [];
     const extractedShorts = [];
@@ -152,7 +212,6 @@ export default function SearchSettingScreen({ route }) {
         if (node.reelItemRenderer) {
           extractedShorts.push(node.reelItemRenderer);
         } else if (node.reelShelfRenderer) {
-          // ইউটিউব অনেক সময় শর্টসগুলো reelShelfRenderer এর ভেতর দেয়
           node.reelShelfRenderer.items?.forEach(item => {
              if (item.reelItemRenderer) extractedShorts.push(item.reelItemRenderer);
           });
@@ -160,8 +219,7 @@ export default function SearchSettingScreen({ route }) {
           const channelName = node.videoRenderer.ownerText?.runs?.[0]?.text || '';
           const titleText = node.videoRenderer.title?.runs?.[0]?.text?.toLowerCase() || '';
           const isShortBadge = node.videoRenderer.thumbnailOverlays?.some(overlay => overlay.thumbnailOverlayTimeStatusRenderer?.style === 'SHORTS');
-          
-          // শর্টস চেনার স্ট্রং লজিক
+
           if (isShortBadge || !node.videoRenderer.lengthText || channelName.trim().startsWith('@') || titleText.includes('short') || titleText.includes('শর্ট')) {
              extractedShorts.push({
                 videoId: node.videoRenderer.videoId,
@@ -185,7 +243,6 @@ export default function SearchSettingScreen({ route }) {
 
     const finalFeed = [];
 
-    // প্রথমে চ্যানেলগুলো যুক্ত হবে
     extractedChannels.forEach(ch => {
       const avatarUrl = ch.thumbnail?.thumbnails?.[ch.thumbnail.thumbnails.length - 1]?.url || ch.thumbnail?.thumbnails?.[0]?.url || 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg';
       const channelUrl = ch.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || '';
@@ -197,7 +254,6 @@ export default function SearchSettingScreen({ route }) {
       });
     });
 
-    // এরপর শর্টসগুলো যুক্ত হবে
     const uniqueShortsMap = new Map();
     extractedShorts.forEach(s => {
       const vidId = s.videoId;
@@ -222,7 +278,6 @@ export default function SearchSettingScreen({ route }) {
       finalFeed.push({ type: 'shorts_shelf', id: 'shorts_' + Date.now(), shorts: formattedShorts });
     }
 
-    // সর্বশেষ ভিডিওগুলো যুক্ত হবে
     const uniqueVideosMap = new Map();
     extractedVideos.forEach(v => {
       if (v.videoId && !uniqueVideosMap.has(v.videoId)) {
@@ -248,6 +303,7 @@ export default function SearchSettingScreen({ route }) {
     Keyboard.dismiss();
     inputRef.current?.blur();
     setTimeout(() => {
+        // এখানে আপনার আগের মতোই সম্পূর্ণ 'item' টি 'videoData' হিসেবে পাস হচ্ছে
         navigation.navigate('Player', { videoId: item.id, videoData: item });
     }, 0);
   };
@@ -268,6 +324,7 @@ export default function SearchSettingScreen({ route }) {
     }, 0);
   };
 
+  // 🚨 [RESTORED]: আপনার অরিজিনাল renderItem যেখানে Shorts, Channels এবং Video এর ডিজাইন ছিল
   const renderItem = ({ item }) => {
     if (item.type === 'shorts_shelf') {
       return (
