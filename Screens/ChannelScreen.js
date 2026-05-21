@@ -9,6 +9,9 @@ import { DeviceEventEmitter } from 'react-native';
 const { width } = Dimensions.get('window');
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+// 🎯 আপনার গ্লোবাল প্লেয়ারের সার্ভার আইপি
+const MY_API_SERVER = "http://127.0.0.1:10000";
+
 export default function ChannelScreen() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -55,7 +58,7 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // 🧠 আপডেটেড স্মার্ট স্ক্যানার (পুরাতন ও নতুন ইউটিউব আর্কিটেকচার সাপোর্টেড)
+  // 🧠 স্মার্ট স্ক্যানার
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     const stack = [{ node: rootNode, currentTitle: 'No Title Found' }];
     const seenIds = new Set();
@@ -142,6 +145,30 @@ export default function ChannelScreen() {
     return null;
   };
 
+  // 🧠 সার্ভার থেকে টাইটেল ফেচ করে অ্যারে আপডেট করার ফাংশন (Hydration)
+  const hydrateTitlesFromServer = async (videoItems) => {
+    if (!videoItems || videoItems.length === 0) return videoItems;
+    
+    const ids = videoItems.map(v => v.id).join(',');
+    try {
+      // ✅ 127.0.0.1 লোকালহোস্ট আইপি ব্যবহার করা হয়েছে
+      const response = await fetch(`${MY_API_SERVER}/api/get-titles?ids=${ids}`);
+      const json = await response.json();
+      
+      if (json.success && json.titles) {
+        return videoItems.map(item => ({
+          ...item,
+          title: json.titles[item.id] && json.titles[item.id] !== "Title Unavailable" 
+                 ? json.titles[item.id] 
+                 : item.title 
+        }));
+      }
+    } catch (error) {
+      console.error("Title Hydration Error:", error);
+    }
+    return videoItems;
+  };
+
   const findBannerUrl = (data) => {
     let url = null;
     const search = (obj) => {
@@ -156,15 +183,10 @@ export default function ChannelScreen() {
 
       if (bannerSources && Array.isArray(bannerSources) && bannerSources.length > 0) {
         let tempUrl = bannerSources[bannerSources.length - 1].url; 
-
-        if (tempUrl.startsWith('//')) {
-            tempUrl = 'https:' + tempUrl;
-        }
-
+        if (tempUrl.startsWith('//')) tempUrl = 'https:' + tempUrl;
         url = tempUrl;
         return;
       }
-
       Object.values(obj).forEach(search);
     };
     search(data);
@@ -197,10 +219,17 @@ export default function ChannelScreen() {
             fetchTabViaApi(sEndpoint, 'Shorts')
         ]);
 
-        setTabData(prev => ({
-            Videos: apiVideos && apiVideos.Videos.length > 0 ? apiVideos.Videos : prev.Videos,
-            Shorts: apiShorts && apiShorts.Shorts.length > 0 ? apiShorts.Shorts : prev.Shorts
-        }));
+        let updatedVideos = apiVideos && apiVideos.Videos.length > 0 ? apiVideos.Videos : tabData.Videos;
+        let updatedShorts = apiShorts && apiShorts.Shorts.length > 0 ? apiShorts.Shorts : tabData.Shorts;
+
+        // ✅ সার্ভার থেকে টাইটেল আপডেট করা হচ্ছে
+        updatedVideos = await hydrateTitlesFromServer(updatedVideos);
+        updatedShorts = await hydrateTitlesFromServer(updatedShorts);
+
+        setTabData({
+            Videos: updatedVideos,
+            Shorts: updatedShorts
+        });
 
         if (apiVideos && apiVideos.VideosToken) setVideoToken(apiVideos.VideosToken);
         if (apiShorts && apiShorts.ShortsToken) setShortToken(apiShorts.ShortsToken);
@@ -281,6 +310,10 @@ export default function ChannelScreen() {
       categorizedData.Videos = categorizedData.Videos.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
       categorizedData.Shorts = categorizedData.Shorts.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
 
+      // ✅ সার্ভার থেকে টাইটেল এনে আপডেট করা হচ্ছে
+      categorizedData.Videos = await hydrateTitlesFromServer(categorizedData.Videos);
+      categorizedData.Shorts = await hydrateTitlesFromServer(categorizedData.Shorts);
+
       setVideoToken(categorizedData.VideosToken);
       setShortToken(categorizedData.ShortsToken);
 
@@ -351,7 +384,11 @@ export default function ChannelScreen() {
       extractDataIteratively(data, newData, activeTab);
 
       const filteredNewItems = newData[activeTab].filter(newObj => !tabData[activeTab].some(existingObj => existingObj.id === newObj.id));
-      setTabData(prev => ({ ...prev, [activeTab]: [...prev[activeTab], ...filteredNewItems] }));
+      
+      // ✅ নতুন পেজের ডেটার জন্য সার্ভার থেকে টাইটেল ফেচ করা
+      const fullyHydratedNewItems = await hydrateTitlesFromServer(filteredNewItems);
+
+      setTabData(prev => ({ ...prev, [activeTab]: [...prev[activeTab], ...fullyHydratedNewItems] }));
 
       if (activeTab === 'Videos') setVideoToken(newData.VideosToken || null);
       else setShortToken(newData.ShortsToken || null);
