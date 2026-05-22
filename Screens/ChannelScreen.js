@@ -58,7 +58,7 @@ export default function ChannelScreen() {
     if (isFocused) loadGlobals();
   }, [channelName, isFocused]);
 
-  // 🧠 স্মার্ট স্ক্যানার (YouTube-এর নতুন API ViewModel সাপোর্ট সহ)
+  // 🧠 স্মার্ট স্ক্যানার (Views এবং Published Time ফিক্স সহ)
   const extractDataIteratively = (rootNode, categorizedData, tabType) => {
     try {
       const stack = [{ node: rootNode, currentTitle: 'Unknown Title' }];
@@ -70,14 +70,13 @@ export default function ChannelScreen() {
         let newTitle = currentTitle;
         
         if (node && typeof node === 'object') {
-          // 🎯 YouTube এর নতুন ViewModel আর্কিটেকচার অনুযায়ী টাইটেল খোঁজা
           let possibleTitle = node.title?.runs?.[0]?.text || 
                               node.title?.simpleText || 
                               node.headline?.runs?.[0]?.text || 
                               node.headline?.simpleText ||
                               node.title?.content || 
-                              node.metadata?.lockupMetadataViewModel?.title?.content || // নতুন ভিডিওর জন্য
-                              node.overlayMetadata?.primaryText?.content; // নতুন শর্টসের জন্য
+                              node.metadata?.lockupMetadataViewModel?.title?.content || 
+                              node.overlayMetadata?.primaryText?.content; 
 
           if (possibleTitle && typeof possibleTitle === 'string') {
               newTitle = possibleTitle;
@@ -99,7 +98,6 @@ export default function ChannelScreen() {
             seenIds.add(node.videoId);
             const vId = node.videoId;
 
-            // 🎯 নির্দিষ্ট ভিডিও নোড থেকে টাইটেল বের করা
             let exactTitle = node.title?.runs?.[0]?.text || 
                              node.title?.simpleText || 
                              node.headline?.runs?.[0]?.text || 
@@ -107,15 +105,42 @@ export default function ChannelScreen() {
                              node.title?.content ||
                              newTitle;
 
-            // ⚠️ টার্মিনাল লগিং
             if (!exactTitle || exactTitle === 'Unknown Title') {
                console.warn(`⚠️ [MyTube Warning]: Title not found for video ID - ${vId}. Defaulting to 'Unknown Title'.`);
                exactTitle = 'Unknown Title'; 
             }
 
-            const duration = node.lengthText?.simpleText || node.lengthText?.runs?.[0]?.text || '';
-            const publishedTime = node.publishedTimeText?.simpleText || node.publishedTimeText?.runs?.[0]?.text || '';
-            const views = node.viewCountText?.simpleText || node.viewCountText?.runs?.[0]?.text || '';
+            // 🎯 Duration, Views এবং Published Time বের করার সাধারণ উপায়
+            let duration = node.lengthText?.simpleText || node.lengthText?.runs?.[0]?.text || '';
+            let publishedTime = node.publishedTimeText?.simpleText || node.publishedTimeText?.runs?.[0]?.text || '';
+            let views = node.viewCountText?.simpleText || node.viewCountText?.runs?.[0]?.text || node.shortViewCountText?.simpleText || node.shortViewCountText?.runs?.[0]?.text || '';
+
+            // 🎯 Duration এর অল্টারনেটিভ ফলব্যাক
+            if (!duration && node.thumbnailOverlays) {
+              const timeOverlay = node.thumbnailOverlays.find(o => o.thumbnailOverlayTimeStatusRenderer);
+              if (timeOverlay) {
+                duration = timeOverlay.thumbnailOverlayTimeStatusRenderer.text?.simpleText || '';
+              }
+            }
+
+            // 🎯 YouTube এর নতুন ViewModel আর্কিটেকচার থেকে Views ও Time বের করা
+            const metaContent = node.metadata?.lockupMetadataViewModel?.metadata?.content;
+            if (metaContent && typeof metaContent === 'string') {
+              // metaContent সাধারণত এমন হয়: "15K views • 2 days ago"
+              const parts = metaContent.split('•').map(p => p.trim());
+              
+              if (parts.length > 1) {
+                if (!views) views = parts[0]; // প্রথম অংশ Views
+                if (!publishedTime) publishedTime = parts[1]; // দ্বিতীয় অংশ Published Time
+              } else if (parts.length === 1) {
+                if (parts[0].toLowerCase().includes('view') || parts[0].includes('ভিজ্যুয়াল')) {
+                   if (!views) views = parts[0];
+                } else {
+                   if (!publishedTime) publishedTime = parts[0];
+                }
+              }
+            }
+
             const isLive = JSON.stringify(node).includes('"BADGE_STYLE_TYPE_LIVE_NOW"');
 
             const thumbnailUrl = thumbQuality === 'Data Saver' 
@@ -165,7 +190,6 @@ export default function ChannelScreen() {
     return null;
   };
 
-  // 🎯 ব্যানার লিংক খোঁজার শক্তিশালী ডিপ-স্ক্যানার
   const findBannerUrl = (data) => {
     let url = null;
     try {
