@@ -1,5 +1,7 @@
 {
-  "cli": { "appVersionSource": "app.json" },
+  "cli": {
+    "appVersionSource": "app.json"
+  },
   "expo": {
     "name": "BioDigital-Player",
     "slug": "bio-digital-truth",
@@ -27,7 +29,9 @@
         ],
         "NSPhotoLibraryUsageDescription": "The app needs access to your photo library to save downloaded media.",
         "NSPhotoLibraryAddUsageDescription": "The app needs permission to add photos to your library when saving media.",
-        "NSAppTransportSecurity": { "NSAllowsArbitraryLoads": true }
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
       }
     },
     "android": {
@@ -45,7 +49,16 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "WAKE_LOCK",
-        "RECEIVE_BOOT_COMPLETED"
+        "RECEIVE_BOOT_COMPLETED",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK"
       ],
       "intentFilters": [
         {
@@ -96,6 +109,13 @@
       "expo-web-browser",
       "expo-background-fetch",
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8ea5b74e-65cf-4d05-b29a-569e3bc6af74"
+      },
+      "expo-navigation-bar": {}
+    },
+    "owner": "omarali_2030"
   }
 }
