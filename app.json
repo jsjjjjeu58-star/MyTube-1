@@ -23,7 +23,10 @@
           "audio",
           "fetch",
           "processing"
-        ]
+        ],
+        "NSPhotoLibraryUsageDescription": "The app needs access to your photo library to save downloaded media.",
+        "NSPhotoLibraryAddUsageDescription": "The app needs permission to add photos to your library when saving media.",
+        "NSAppTransportSecurity": { "NSAllowsArbitraryLoads": true }
       }
     },
     "android": {
@@ -36,20 +39,12 @@
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
-        "ACCESS_WIFI_STATE",
-        "WRITE_EXTERNAL_STORAGE",
         "READ_EXTERNAL_STORAGE",
-        "READ_MEDIA_AUDIO",
-        "READ_MEDIA_VIDEO",
-        "NOTIFICATIONS",
-        "WAKE_LOCK",
+        "WRITE_EXTERNAL_STORAGE",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "FOREGROUND_SERVICE_DATA_SYNC",
-        "REQUEST_INSTALL_PACKAGES",
-        "SYSTEM_ALERT_WINDOW",
-        "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
+        "WAKE_LOCK",
+        "RECEIVE_BOOT_COMPLETED"
       ],
       "intentFilters": [
         {
@@ -76,15 +71,18 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-notifications",
-      "expo-media-library",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "The app needs access to your photos to save downloaded videos.",
+          "savePhotosPermission": "The app needs permission to save media to your library."
+        }
+      ],
       "expo-file-system",
-      "expo-navigation-bar",
-      "expo-av",
       "expo-screen-orientation",
-      "expo-background-fetch",
+      "expo-navigation-bar",
       "expo-task-manager",
-      "expo-secure-store",
+      "expo-keep-awake",
       [
         "expo-build-properties",
         {
@@ -97,7 +95,9 @@
       ],
       "expo-web-browser",
       "expo-audio",
-      "expo-video"
+      "expo-video",
+      "expo-background-fetch",
+      "expo-secure-store"
     ]
   }
 }
