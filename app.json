@@ -83,7 +83,6 @@
       "expo-screen-orientation",
       "expo-navigation-bar",
       "expo-task-manager",
-      "expo-keep-awake",
       [
         "expo-build-properties",
         {
