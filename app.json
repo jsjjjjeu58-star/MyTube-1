@@ -1,4 +1,5 @@
 {
+  "cli": { "appVersionSource": "app.json" },
   "expo": {
     "name": "BioDigital-Player",
     "slug": "bio-digital-truth",
