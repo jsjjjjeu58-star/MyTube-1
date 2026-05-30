@@ -22,7 +22,7 @@ const MINI_HEIGHT = (MINI_WIDTH * 9) / 16;
 
 const MY_API_SERVER = "http://127.0.0.1:10000"; 
 
-// 🚨 [FIX] Getter-Only এরর সমাধানের জন্য সেফটি ফাংশন তৈরি করা হলো 🚨
+// 🚨 [FIX] Getter-Only এরর সমাধানের জন্য সেফটি ফাংশন
 const safeSeek = (p, targetSec) => {
     if (!p) return;
     try {
@@ -131,9 +131,9 @@ export default function GlobalPlayer() {
   const player = useVideoPlayer(videoSource, (p) => {
     if (!videoSource) return; 
     try { p.loop = false; } catch(e) {}
-    safeSetRate(p, currentSpeed); // 🚨 Getter এরর সলভড
+    safeSetRate(p, currentSpeed);
     if (streamModeRef.current === 'separate') {
-        safeSetMuted(p, true); // 🚨 Getter এরর সলভড
+        safeSetMuted(p, true);
     }
   });
 
@@ -147,10 +147,14 @@ export default function GlobalPlayer() {
     const appStateSub = AppState.addEventListener('change', async (nextAppState) => {
         if (nextAppState.match(/inactive|background/)) {
             if (!isAudioModeRef.current) {
-                if (player && player.playing) player.pause();
-                if (syncAudioRef.current && syncAudioRef.current.playing) {
-                    syncAudioRef.current.pause();
-                }
+                try {
+                    if (player && player.playing) player.pause();
+                } catch(e) {}
+                try {
+                    if (syncAudioRef.current && syncAudioRef.current.playing) {
+                        syncAudioRef.current.pause();
+                    }
+                } catch(e) {}
             }
         }
     });
@@ -234,9 +238,9 @@ export default function GlobalPlayer() {
       setCurrentTime(newTime); 
       try {
           if (isAudioModeRef.current) {
-              safeSeek(syncAudioRef.current, newTime); // 🚨 Getter এরর সলভড
+              safeSeek(syncAudioRef.current, newTime); 
           } else {
-              safeSeek(player, newTime); // 🚨 Getter এরর সলভড
+              safeSeek(player, newTime); 
               if (streamModeRef.current === 'separate' && syncAudioRef.current) {
                   safeSeek(syncAudioRef.current, newTime); 
               }
@@ -284,8 +288,12 @@ export default function GlobalPlayer() {
       isAudioModeRef.current = mode;
 
       if (mode) {
-          resumeTimeRef.current = player ? player.currentTime : currentTime;
-          if (player) player.pause();
+          try {
+              resumeTimeRef.current = player ? player.currentTime : currentTime;
+              if (player && typeof player.pause === 'function') player.pause();
+          } catch(e) {
+              resumeTimeRef.current = currentTime;
+          }
           setVideoSource(null); 
           setIsPlayingUI(true); 
 
@@ -307,7 +315,7 @@ export default function GlobalPlayer() {
                   safeReleaseAudio();
                   syncAudioRef.current = createAudioPlayer(audioUrlToPlay);
                   pendingSeekRef.current = resumeTimeRef.current; 
-                  safeSetRate(syncAudioRef.current, currentSpeed); // 🚨 Getter এরর সলভড
+                  safeSetRate(syncAudioRef.current, currentSpeed); 
                   syncAudioRef.current.play();
               }
           }
@@ -315,7 +323,7 @@ export default function GlobalPlayer() {
           let resumeVideoTime = resumeTimeRef.current;
 
           if (syncAudioRef.current) {
-              resumeVideoTime = syncAudioRef.current.currentTime;
+              try { resumeVideoTime = syncAudioRef.current.currentTime; } catch(e){}
               if (streamModeRef.current !== 'separate') {
                   safeReleaseAudio();
               } else {
@@ -340,19 +348,23 @@ export default function GlobalPlayer() {
           timeoutId = setTimeout(async () => {
               try {
                   if (resumeTimeRef.current > 0) {
-                      safeSeek(player, resumeTimeRef.current); // 🚨 Getter এরর সলভড
+                      safeSeek(player, resumeTimeRef.current);
                   }
-                  player.play();
+                  if (player && typeof player.play === 'function') {
+                      player.play();
+                  }
 
                   if (streamModeRef.current === 'separate' && syncAudioRef.current) {
-                      safeSeek(syncAudioRef.current, resumeTimeRef.current); // 🚨 Getter এরর সলভড
+                      safeSeek(syncAudioRef.current, resumeTimeRef.current);
                       syncAudioRef.current.play();
                   }
-              } catch (e) {}
+              } catch (e) {
+                  console.log("Playback start error, player might be released:", e);
+              }
           }, 800); 
       }
       return () => clearTimeout(timeoutId);
-  }, [videoSource, isAudioMode]);
+  }, [videoSource, isAudioMode, player]);
 
   const fetchStreamUrl = async (vidId, targetQuality, fetchId) => {
     try {
@@ -390,14 +402,20 @@ export default function GlobalPlayer() {
     if (json.audioUrl && streamModeRef.current === 'separate') {
         safeReleaseAudio();
         syncAudioRef.current = createAudioPlayer(json.audioUrl);
-        safeSetVolume(syncAudioRef.current, 1.0); // 🚨 Getter এরর সলভড
-        safeSetRate(syncAudioRef.current, currentSpeed); // 🚨 Getter এরর সলভড
+        safeSetVolume(syncAudioRef.current, 1.0); 
+        safeSetRate(syncAudioRef.current, currentSpeed); 
         syncAudioRef.current.play();
     }
   };
 
   const handleSkip = async (amount, isSilent = false) => {
-      let currentPosition = isAudioMode ? currentTime : (player ? player.currentTime : currentTime);
+      let currentPosition = currentTime;
+      try {
+          if (!isAudioMode && player) {
+              currentPosition = player.currentTime;
+          }
+      } catch(e) {}
+      
       let newTime = currentPosition + amount;
       
       if (newTime < 0) newTime = 0;
@@ -430,8 +448,8 @@ export default function GlobalPlayer() {
 
   const changeSpeed = async (speed) => {
       setCurrentSpeed(speed);
-      safeSetRate(player, speed); // 🚨 Getter এরর সলভড
-      safeSetRate(syncAudioRef.current, speed); // 🚨 Getter এরর সলভড
+      safeSetRate(player, speed); 
+      safeSetRate(syncAudioRef.current, speed); 
       setShowSpeedMenu(false);
       setShowSettingsMenu(false);
   };
@@ -448,7 +466,7 @@ export default function GlobalPlayer() {
                     setIsPlayingUI(syncAudioRef.current.playing);
 
                     if (pendingSeekRef.current !== null) {
-                        safeSeek(syncAudioRef.current, pendingSeekRef.current); // 🚨 Getter এরর সলভড
+                        safeSeek(syncAudioRef.current, pendingSeekRef.current);
                         setCurrentTime(pendingSeekRef.current);
                         pendingSeekRef.current = null;
                     } else if (!isSlidingRef.current) {
@@ -459,13 +477,17 @@ export default function GlobalPlayer() {
             } catch(e) {}
             isSyncingRef.current = false;
         } else {
-            setIsPlayingUI(player?.playing || false);
-            
-            if (player) {
-                if (!isSlidingRef.current && (player.currentTime > 0 || player.playing)) {
-                    setCurrentTime(player.currentTime);
-                    if (player.duration > 0) setDuration(player.duration);
+            try {
+                setIsPlayingUI(player?.playing || false);
+                
+                if (player) {
+                    if (!isSlidingRef.current && (player.currentTime > 0 || player.playing)) {
+                        setCurrentTime(player.currentTime);
+                        if (player.duration > 0) setDuration(player.duration);
+                    }
                 }
+            } catch(e) {
+                // Ignore getter errors when player is released
             }
 
             if (streamMode === 'separate' && videoSource) {
@@ -473,10 +495,17 @@ export default function GlobalPlayer() {
                 try {
                     const isAudioReady = syncAudioRef.current && (syncAudioRef.current.duration > 0 || syncAudioRef.current.playing);
                     if (isAudioReady) {
-                        if (player && player.playing) {
-                            const diff = Math.abs(player.currentTime - syncAudioRef.current.currentTime);
+                        let isPlayerPlaying = false;
+                        let playerCurrentTime = 0;
+                        try {
+                            isPlayerPlaying = player && player.playing;
+                            playerCurrentTime = player ? player.currentTime : 0;
+                        } catch(e) {}
+
+                        if (isPlayerPlaying) {
+                            const diff = Math.abs(playerCurrentTime - syncAudioRef.current.currentTime);
                             if (diff > 1.5) { 
-                                safeSeek(syncAudioRef.current, player.currentTime); // 🚨 Getter এরর সলভড
+                                safeSeek(syncAudioRef.current, playerCurrentTime); 
                             }
                             if (!syncAudioRef.current.playing) syncAudioRef.current.play();
                         } else {
@@ -575,7 +604,9 @@ export default function GlobalPlayer() {
       if (isFullscreen) await toggleFullscreen();
       setStreamUrl(null);
       setVideoSource(null); 
-      if (player) player.pause();
+      try {
+          if (player && typeof player.pause === 'function') player.pause();
+      } catch(e) {}
       safeReleaseAudio();
   };
 
@@ -658,12 +689,16 @@ export default function GlobalPlayer() {
                             else syncAudioRef.current.play();
                         }
                     } else if (player) {
-                        if (player.playing) {
-                            player.pause();
-                            if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.pause();
-                        } else {
-                            player.play();
-                            if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.play();
+                        try {
+                            if (player.playing) {
+                                if (typeof player.pause === 'function') player.pause();
+                                if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.pause();
+                            } else {
+                                if (typeof player.play === 'function') player.play();
+                                if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.play();
+                            }
+                        } catch(e) {
+                            console.log("Player toggle error:", e);
                         }
                     }
                     triggerControls();
@@ -813,12 +848,16 @@ export default function GlobalPlayer() {
                                 else syncAudioRef.current.play();
                             }
                         } else if (player) {
-                            if (player.playing) {
-                                player.pause();
-                                if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.pause();
-                            } else {
-                                player.play();
-                                if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.play();
+                            try {
+                                if (player.playing) {
+                                    if (typeof player.pause === 'function') player.pause();
+                                    if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.pause();
+                                } else {
+                                    if (typeof player.play === 'function') player.play();
+                                    if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.play();
+                                }
+                            } catch(e) {
+                                console.log("Player toggle error:", e);
                             }
                         }
                     }}>
