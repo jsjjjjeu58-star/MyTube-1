@@ -75,7 +75,7 @@ export default function GlobalPlayer() {
   const [isFullscreen, setIsFullscreen] = useState(false); 
   const [videoData, setVideoData] = useState(null);
   const [streamUrl, setStreamUrl] = useState(null);
-  const [isLoading, setIsLoading] = useState(false); // 🚨 নতুন: ভিডিও লোডিং স্টেট
+  const [isLoading, setIsLoading] = useState(false);
   
   const [videoSource, setVideoSource] = useState(null); 
   const resumeTimeRef = useRef(0); 
@@ -208,7 +208,6 @@ export default function GlobalPlayer() {
       setVideoData(data.videoData);
       setPlayerState('full');
       
-      // 🚨 ফিক্স: সাথে সাথে UI লোড হবে, ভিডিও পরে আসবে
       setIsLoading(true);
       setStreamUrl(null);
       setVideoSource(null); 
@@ -380,17 +379,13 @@ export default function GlobalPlayer() {
     return () => clearInterval(interval);
   }, [player, isAudioMode]);
 
-  // 🚨 ফিক্স: PanResponder কে আরো স্মুথ করা হলো যাতে বাটনে ক্লিক মিস না হয়
   const videoPanResponder = useRef(PanResponder.create({
       onStartShouldSetPanResponder: () => false, 
       onMoveShouldSetPanResponder: (evt, gestureState) => {
           const touches = evt.nativeEvent.touches;
           if (touches && touches.length >= 2) return true; 
           
-          // যদি ইউজার স্ক্রিনের নিচে (স্লাইডার বা সেটিং বাটনের কাছে) টাচ করে তবে PanResponder কাজ করবে না।
           if (gestureState.y0 > Dimensions.get('window').height - 120) return false;
-
-          // সামান্য ট্যাপ করলে যেন সোয়াইপ মনে না করে
           if (Math.abs(gestureState.dx) > 20 || Math.abs(gestureState.dy) > 20) return true; 
           return false;
       },
@@ -436,7 +431,7 @@ export default function GlobalPlayer() {
     >
       <View style={styles.masterWrapper}>
         
-        {/* 🚨 লেয়ার ১: ভিডিও রেন্ডার বা লোডিং (সবার নিচে থাকবে) 🚨 */}
+        {/* Layer 1: Video */}
         <Animated.View style={[styles.layerVideo, { transform: [{ scale: scale }] }]}>
             {isLoading ? (
                 <ActivityIndicator size="large" color="#FF0000" />
@@ -452,7 +447,7 @@ export default function GlobalPlayer() {
             )}
         </Animated.View>
 
-        {/* 🚨 লেয়ার ২: জেসচার ওভারলে (সোয়াইপ এবং ডাবল ট্যাপ রিসিভ করবে) 🚨 */}
+        {/* Layer 2: Gestures */}
         {isInteractiveFull && !fallbackData && (
             <View style={styles.layerGestures} {...videoPanResponder.panHandlers}>
                 <TouchableOpacity activeOpacity={1} style={styles.tapHalf} onPress={() => handleTap('left')} />
@@ -460,11 +455,11 @@ export default function GlobalPlayer() {
             </View>
         )}
 
-        {/* 🚨 লেয়ার ৩: ফিক্সড UI (সবসময় উপরে থাকবে, ভিডিওর জন্য অপেক্ষা করবে না) 🚨 */}
+        {/* Layer 3: UI Controls */}
         {isInteractiveFull && showControls && !fallbackData && (
           <View style={styles.layerUI} pointerEvents="box-none">
              
-             {/* Center Play/Pause */}
+             {/* 🚨 Fix: Absolute Center Play/Pause 🚨 */}
              <View style={styles.centerRow} pointerEvents="box-none">
                 <TouchableOpacity onPress={togglePlayPause} style={styles.playButton}>
                    <Ionicons name={isPlayingUI ? "pause-circle" : "play-circle"} size={75} color="#FFF" />
@@ -502,9 +497,47 @@ export default function GlobalPlayer() {
           </View>
         )}
 
-        {/* --- Modals and Fallbacks --- */}
-        {/* ... (আপনার আগের Modal এবং Fallback কোড অপরিবর্তিত থাকবে) ... */}
+        {/* Settings Modal */}
+        <Modal visible={showSettingsMenu} transparent animationType="fade">
+            <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettingsMenu(false)}>
+                <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
+                    <Text style={styles.modalTitle}>Player Settings</Text>
+                    <TouchableOpacity style={styles.menuItem} onPress={() => { setShowSettingsMenu(false); setShowSpeedMenu(true); }}>
+                        <Ionicons name="speedometer-outline" size={20} color="#FFF" style={styles.menuIcon} />
+                        <Text style={styles.menuText}>Playback Speed ({currentSpeed}x)</Text>
+                    </TouchableOpacity>
+                </TouchableOpacity>
+            </TouchableOpacity>
+        </Modal>
 
+        {/* Speed Modal */}
+        <Modal visible={showSpeedMenu} transparent animationType="fade">
+            <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSpeedMenu(false)}>
+                <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
+                    <Text style={styles.modalTitle}>Select Speed</Text>
+                    {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map(s => (
+                        <TouchableOpacity key={s} style={styles.menuItem} onPress={() => { setCurrentSpeed(s); safeSetRate(player, s); if (syncAudioRef.current) safeSetRate(syncAudioRef.current, s); setShowSpeedMenu(false); setShowSettingsMenu(false); }}>
+                            <Text style={[styles.menuText, currentSpeed === s && {color: '#FF0000', fontWeight: 'bold'}]}>
+                                {s === 1.0 ? 'Normal (1.0x)' : `${s}x`}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </TouchableOpacity>
+            </TouchableOpacity>
+        </Modal>
+
+        {/* Fallback Overlay */}
+        {fallbackData && (
+          <View style={styles.fallbackOverlay}>
+            <Ionicons name="alert-circle" size={50} color="#FFD700" />
+            <Text style={styles.fallbackText}>{fallbackData.message}</Text>
+            <TouchableOpacity style={styles.btn} onPress={() => { startPlayback(fallbackData.data); setFallbackData(null); }}>
+              <Text style={styles.btnText}>OK, Play Highest Quality</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        
+        {/* Mini Player Controls */}
         {!isInteractiveFull && (
             <TouchableOpacity activeOpacity={0.9} style={StyleSheet.absoluteFillObject} onPress={() => setPlayerState('full')}>
                 <View style={styles.miniControlsRow}>
@@ -526,7 +559,6 @@ const styles = StyleSheet.create({
   
   masterWrapper: { flex: 1, width: '100%', height: '100%' },
 
-  /* 🚨 3-Layer System 🚨 */
   // Layer 1
   layerVideo: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000', zIndex: 1, elevation: 1 },
   video: { flex: 1, width: '100%', height: '100%' },
@@ -535,12 +567,21 @@ const styles = StyleSheet.create({
   layerGestures: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', zIndex: 10, elevation: 10 },
   tapHalf: { flex: 1, height: '100%' },
   
-  // Layer 3
-  layerUI: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center', zIndex: 100, elevation: 100 },
+  // 🚨 Layer 3 (Fix: Center alignment removed here) 🚨
+  layerUI: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 100, elevation: 100 },
 
   audioModeOverlay: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
-  centerRow: { position: 'absolute', flexDirection: 'row', alignItems: 'center' },
-  playButton: { padding: 30 }, // বাটনের টাচ এরিয়া বড় রাখা হলো
+  
+  // 🚨 Fix: Absolute Center Row for Play Button 🚨
+  centerRow: { 
+      position: 'absolute', 
+      top: '50%', 
+      left: '50%', 
+      transform: [{ translateX: -60 }, { translateY: -60 }], // Adjusted for button size + padding
+      flexDirection: 'row', 
+      alignItems: 'center' 
+  },
+  playButton: { padding: 30 }, 
   
   bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 60, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, backgroundColor: 'rgba(0,0,0,0.5)' },
   timeText: { color: '#FFF', fontSize: 13, fontWeight: 'bold', minWidth: 45, textAlign: 'center' },
@@ -548,4 +589,16 @@ const styles = StyleSheet.create({
   iconBtn: { marginLeft: 15, padding: 5 },
   
   miniControlsRow: { position: 'absolute', top: 5, right: 5, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 15, paddingHorizontal: 5 },
+
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
+  settingsMenu: { width: 250, backgroundColor: '#1A1A1A', borderRadius: 15, padding: 15, elevation: 10 },
+  modalTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginBottom: 10, textAlign: 'center', borderBottomWidth: 1, borderBottomColor: '#333', paddingBottom: 10 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#333' },
+  menuIcon: { marginRight: 10 },
+  menuText: { color: '#FFF', fontSize: 16 },
+
+  fallbackOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  fallbackText: { color: '#FFF', textAlign: 'center', marginVertical: 20, fontSize: 16 },
+  btn: { backgroundColor: '#FF0000', paddingHorizontal: 25, paddingVertical: 12, borderRadius: 10 },
+  btnText: { color: '#FFF', fontWeight: 'bold' },
 });
