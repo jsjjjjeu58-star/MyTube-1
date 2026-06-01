@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, StatusBar, ActivityIndicator, Platform, Dimensions, RefreshControl, ScrollView, Switch, DeviceEventEmitter } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, StatusBar, ActivityIndicator, Platform, Dimensions, RefreshControl, ScrollView, Switch, BackHandler } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import { useTheme } from '../ThemeContext'; 
+import { useLanguage } from '../LanguageContext'; // [NEW] Language Context
 
 import SettingsScreen from '../Settings/SettingsScreen';
 import ShortsScreen from './ShortsScreen'; 
@@ -13,12 +16,16 @@ const FEED_TOPICS = [ "trending bangladesh", "bangla natok 2026", "bangla new so
 global.aiMemory = global.aiMemory || {};
 global.seenVideoIds = global.seenVideoIds || new Set(); 
 
-const { width } = Dimensions.get('window');
-
 export default function HomeScreen({ route }) {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
+  
+  const { isDarkMode, toggleDarkMode } = useTheme();
+  const { locale, changeLanguage, t } = useLanguage(); // [NEW] Language Hook
+
   const [activeTab, setActiveTab] = useState('Home');
+  const [meView, setMeView] = useState('main'); // [NEW] ME tab sub-screen state
+
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -26,24 +33,13 @@ export default function HomeScreen({ route }) {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedShortId, setSelectedShortId] = useState(null);
-  const [subscribedChannels, setSubscribedChannels] = useState([]);
   const [thumbQuality, setThumbQuality] = useState('High');
   const [activeQuery, setActiveQuery] = useState('');
-  
-  const [isDarkMode, setIsDarkMode] = useState(true);
 
   const getAlgorithmicTopic = async () => {
     try {
-      const subs = await AsyncStorage.getItem('subscribedChannels');
-      const parsedSubs = subs ? JSON.parse(subs) : [];
       const suffixes = ["", "today", "new", "2026", "latest"];
       const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
-
-      if (parsedSubs.length > 0 && Math.random() < 0.10) {
-          const randomSub = parsedSubs[Math.floor(Math.random() * parsedSubs.length)].name;
-          const subQueries = [`${randomSub} latest`, `${randomSub} related`, randomSub];
-          return `${subQueries[Math.floor(Math.random() * subQueries.length)]} ${suffix}`.trim();
-      }
       return `${FEED_TOPICS[Math.floor(Math.random() * FEED_TOPICS.length)]} ${suffix}`.trim();
     } catch (e) { return FEED_TOPICS[0]; }
   };
@@ -51,16 +47,9 @@ export default function HomeScreen({ route }) {
   useEffect(() => {
     const loadGlobalData = async () => {
       try {
-        const subs = await AsyncStorage.getItem('subscribedChannels');
-        if (subs) setSubscribedChannels(JSON.parse(subs));
         const quality = await AsyncStorage.getItem('thumbnailQuality');
         if (quality) setThumbQuality(quality);
         if (!activeQuery) setActiveQuery(await getAlgorithmicTopic());
-        
-        const savedTheme = await AsyncStorage.getItem('appTheme');
-        if (savedTheme !== null) {
-          setIsDarkMode(savedTheme === 'dark');
-        }
       } catch (e) {}
     };
     if (isFocused) loadGlobalData();
@@ -76,6 +65,19 @@ export default function HomeScreen({ route }) {
   useEffect(() => {
     if (activeQuery) fetchRealVideos(activeQuery, true);
   }, [activeQuery]);
+
+  // [NEW] Hardware Back Button Handling for ME tab
+  useEffect(() => {
+    const backAction = () => {
+      if (activeTab === 'ME' && meView !== 'main') {
+        setMeView('main');
+        return true;
+      }
+      return false;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => backHandler.remove();
+  }, [activeTab, meView]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -115,12 +117,11 @@ export default function HomeScreen({ route }) {
                 const channelName = node.videoRenderer.ownerText?.runs?.[0]?.text || '';
                 const titleText = node.videoRenderer.title?.runs?.[0]?.text?.toLowerCase() || '';
                 if (channelName.trim().startsWith('@') || titleText.includes('short') || titleText.includes('শর্ট')) {
-                    extractedShorts.push({ videoId: node.videoRenderer.videoId, headline: { simpleText: node.videoRenderer.title?.runs?.[0]?.text }, viewCountText: { simpleText: node.videoRenderer.shortViewCountText?.simpleText } });
+                    extractedShorts.push({ videoId: node.videoRenderer.videoId });
                 } else {
                     extractedVideos.push(node.videoRenderer);
                 }
             }
-            else if (node.reelItemRenderer) extractedShorts.push(node.reelItemRenderer);
             else Object.values(node).forEach(extractNodes);
           }
         };
@@ -142,13 +143,6 @@ export default function HomeScreen({ route }) {
     } catch (e) {} finally { setLoading(false); setRefreshing(false); }
   };
 
-  const toggleDarkMode = async () => {
-    const newTheme = !isDarkMode;
-    setIsDarkMode(newTheme);
-    await AsyncStorage.setItem('appTheme', newTheme ? 'dark' : 'light');
-    DeviceEventEmitter.emit('themeChanged', newTheme);
-  };
-
   const styles = getDynamicStyles(isDarkMode);
 
   const renderVideoItem = ({ item }) => {
@@ -160,14 +154,9 @@ export default function HomeScreen({ route }) {
         </TouchableOpacity>
 
         <View style={styles.videoInfo}>
-          {/* [NEW]: Channel Avatar-এর ওপর TouchableOpacity যোগ করা হয়েছে */}
-          <TouchableOpacity 
-            activeOpacity={0.8} 
-            onPress={() => navigation.navigate('Channel', { channelName: item.channel, channelAvatar: item.avatar })}
-          >
+          <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('Channel', { channelName: item.channel, channelAvatar: item.avatar })}>
             <Image source={{ uri: item.avatar }} style={styles.channelAvatar} />
           </TouchableOpacity>
-          
           <View style={styles.textContainer}>
             <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
             <Text style={styles.meta}>{item.channel} • {item.views}</Text>
@@ -177,7 +166,7 @@ export default function HomeScreen({ route }) {
     );
   };
 
-  const MeMenuCard = ({ icon, iconBg, iconColor, title, subtitle, badge, onPress, isSwitch, switchValue, onSwitchChange }) => (
+  const MeMenuCard = ({ icon, iconBg, iconColor, title, subtitle, onPress, isSwitch, switchValue, onSwitchChange }) => (
     <TouchableOpacity style={styles.meMenuCard} activeOpacity={isSwitch ? 1 : 0.8} onPress={isSwitch ? null : onPress}>
       <View style={[styles.meMenuIconBox, { backgroundColor: iconBg }]}>
         <Ionicons name={icon} size={22} color={iconColor} />
@@ -186,24 +175,25 @@ export default function HomeScreen({ route }) {
         <Text style={styles.meMenuTitle}>{title}</Text>
         <Text style={styles.meMenuSubtitle}>{subtitle}</Text>
       </View>
-      {badge ? (
-        <View style={styles.meMenuBadge}>
-          <Text style={styles.meMenuBadgeText}>{badge}</Text>
-        </View>
-      ) : null}
-      
       {isSwitch ? (
         <Switch 
-          value={switchValue} 
-          onValueChange={onSwitchChange} 
-          trackColor={{ false: '#d1d1d1', true: 'rgba(255, 0, 0, 0.5)' }} 
-          thumbColor={switchValue ? '#FF0000' : '#f4f3f4'} 
+          value={switchValue} onValueChange={onSwitchChange} 
+          trackColor={{ false: '#d1d1d1', true: 'rgba(255, 0, 0, 0.5)' }} thumbColor={switchValue ? '#FF0000' : '#f4f3f4'} 
         />
       ) : (
         <Ionicons name="chevron-forward" size={18} color={isDarkMode ? "#555" : "#AAA"} style={{ marginLeft: 8 }} />
       )}
     </TouchableOpacity>
   );
+
+  const languagesList = [
+    { id: 'bn', name: 'বাংলা' },
+    { id: 'en', name: 'English' },
+    { id: 'hi', name: 'हिन्दी' },
+    { id: 'ur', name: 'اردو' },
+    { id: 'fa', name: 'فارسی' },
+    { id: 'ar', name: 'العربية' }
+  ];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -215,44 +205,32 @@ export default function HomeScreen({ route }) {
              <Ionicons name="logo-youtube" size={28} color="#FF0000" />
              <Text style={styles.logoText}>MyTube</Text>
           </View>
-     
           <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
-            <Text style={{ flex: 1, color: isDarkMode ? '#888' : '#666', fontSize: 14 }}>{searchQuery || "সার্চ..."}</Text>
+            {/* [NEW] Search Text Translated */}
+            <Text style={{ flex: 1, color: isDarkMode ? '#888' : '#666', fontSize: 14 }}>{searchQuery || t('search')}</Text>
             <Ionicons name="search" size={18} color={isDarkMode ? "#AAA" : "#888"} />
           </TouchableOpacity>
         </View>
       )}
 
       <View style={styles.mainContent}>
-  
        {activeTab === 'Home' ? (
           loading && videos.length === 0 ? ( 
             <View style={{ paddingTop: 10 }}>
               {[1, 2, 3].map((key) => (
                 <View key={key} style={styles.skeletonCard}>
-                  <View style={styles.skeletonThumbnail} />
-                  <View style={styles.skeletonInfo}>
-                    <View style={styles.skeletonAvatar} />
-                    <View style={styles.skeletonTextContainer}>
-                      <View style={styles.skeletonTitle} />
-                      <View style={styles.skeletonMeta} />
-                    </View>
-                  </View>
+                  <View style={styles.skeletonThumbnail} /><View style={styles.skeletonInfo}><View style={styles.skeletonAvatar} /><View style={styles.skeletonTextContainer}><View style={styles.skeletonTitle} /><View style={styles.skeletonMeta} /></View></View>
                 </View>
               ))}
             </View>
           ) : (
             <FlatList 
-              data={videos} 
-              renderItem={renderVideoItem} 
-              keyExtractor={(item, index) => item.id + index.toString()} 
+              data={videos} renderItem={renderVideoItem} keyExtractor={(item, index) => item.id + index.toString()} 
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FF0000" />} 
-              onEndReached={loadMoreVideos}
-              onEndReachedThreshold={0.5} 
+              onEndReached={loadMoreVideos} onEndReachedThreshold={0.5} 
               ListFooterComponent={isFetchingMore ? <ActivityIndicator size="small" color="#FF0000" style={{ marginVertical: 20 }} /> : null}
             />
           )
-       
         ) : activeTab === 'Live' ? (
           <LiveScreen /> 
         ) : activeTab === 'Shorts' ? (
@@ -260,47 +238,71 @@ export default function HomeScreen({ route }) {
         ) : activeTab === 'Settings' ? (
           <SettingsScreen />
         ) : activeTab === 'ME' ? (
-          
           <View style={styles.meContainer}>
-            <Text style={styles.meSectionTitle}>MENU</Text>
             
-            <ScrollView contentContainerStyle={styles.meMenuWrapper} showsVerticalScrollIndicator={false}>
-               <MeMenuCard 
-                  icon="time" iconBg="rgba(255, 152, 0, 0.12)" iconColor="#FF9800" 
-                  title="History" subtitle="Recently watched videos" badge="24"
-                  onPress={() => navigation.navigate('History')} 
-               />
-               <MeMenuCard 
-                  icon="download" iconBg="rgba(76, 175, 80, 0.12)" iconColor="#4CAF50" 
-                  title="Download" subtitle="Offline saved videos" badge="7"
-                  onPress={() => navigation.navigate('Downloads')} 
-               />
-               <MeMenuCard 
-                  icon="logo-youtube" iconBg="rgba(244, 67, 54, 0.12)" iconColor="#F44336" 
-                  title="My Subscribe" subtitle="Channels you follow" badge="12"
-                  onPress={() => navigation.navigate('Subscriptions')} 
-               />
-               <MeMenuCard 
-                  icon="list" iconBg="rgba(103, 58, 183, 0.12)" iconColor="#8E24AA" 
-                  title="My Playlist" subtitle="Your curated collections" badge="5"
-                  onPress={() => navigation.navigate('Playlist')} 
-               />
-               <MeMenuCard 
-                  icon="settings-sharp" iconBg="rgba(158, 158, 158, 0.12)" iconColor="#9E9E9E" 
-                  title="Settings" subtitle="App preferences & privacy" 
-                  onPress={() => setActiveTab('Settings')} 
-               />
-               
-               <MeMenuCard 
-                  icon="moon" iconBg="rgba(33, 150, 243, 0.12)" iconColor="#2196F3" 
-                  title="Dark Mode" subtitle="Switch app theme" 
-                  isSwitch={true}
-                  switchValue={isDarkMode}
-                  onSwitchChange={toggleDarkMode}
-               />
-            </ScrollView>
+            {meView === 'main' ? (
+              <>
+                <Text style={styles.meSectionTitle}>{t('menu')}</Text>
+                <ScrollView contentContainerStyle={styles.meMenuWrapper} showsVerticalScrollIndicator={false}>
+                   <MeMenuCard 
+                      icon="time" iconBg="rgba(255, 152, 0, 0.12)" iconColor="#FF9800" 
+                      title={t('history')} subtitle={t('historyDesc')} onPress={() => navigation.navigate('History')} 
+                   />
+                   <MeMenuCard 
+                      icon="download" iconBg="rgba(76, 175, 80, 0.12)" iconColor="#4CAF50" 
+                      title={t('download')} subtitle={t('downloadDesc')} onPress={() => navigation.navigate('Downloads')} 
+                   />
+                   <MeMenuCard 
+                      icon="logo-youtube" iconBg="rgba(244, 67, 54, 0.12)" iconColor="#F44336" 
+                      title={t('subscribe')} subtitle={t('subscribeDesc')} onPress={() => navigation.navigate('Subscriptions')} 
+                   />
+                   <MeMenuCard 
+                      icon="list" iconBg="rgba(103, 58, 183, 0.12)" iconColor="#8E24AA" 
+                      title={t('playlist')} subtitle={t('playlistDesc')} onPress={() => navigation.navigate('Playlist')} 
+                   />
+                   <MeMenuCard 
+                      icon="settings-sharp" iconBg="rgba(158, 158, 158, 0.12)" iconColor="#9E9E9E" 
+                      title={t('settings')} subtitle={t('settingsDesc')} onPress={() => setActiveTab('Settings')} 
+                   />
+                   
+                   <MeMenuCard 
+                      icon="moon" iconBg="rgba(33, 150, 243, 0.12)" iconColor="#2196F3" 
+                      title={t('darkMode')} subtitle={t('darkModeDesc')} isSwitch={true} switchValue={isDarkMode} onSwitchChange={toggleDarkMode}
+                   />
+
+                   {/* [NEW] Language Option Menu Card */}
+                   <MeMenuCard 
+                      icon="language" iconBg="rgba(233, 30, 99, 0.12)" iconColor="#E91E63" 
+                      title={t('language')} subtitle={t('languageDesc')} onPress={() => setMeView('language')}
+                   />
+                </ScrollView>
+              </>
+            ) : (
+              // [NEW] Language Selection Sub-screen
+              <View style={{ flex: 1 }}>
+                 <View style={styles.subScreenHeader}>
+                    <TouchableOpacity style={{ padding: 10 }} onPress={() => setMeView('main')}>
+                      <Ionicons name="arrow-back" size={24} color={isDarkMode ? "#FFF" : "#000"} />
+                    </TouchableOpacity>
+                    <Text style={styles.subScreenTitle}>{t('language')}</Text>
+                    <View style={{ width: 44 }} />
+                 </View>
+                 <ScrollView contentContainerStyle={styles.meMenuWrapper}>
+                    {languagesList.map((lang, index) => (
+                      <TouchableOpacity 
+                        key={index} activeOpacity={0.8}
+                        style={[styles.languageItem, locale === lang.id && styles.languageItemSelected]}
+                        onPress={() => { changeLanguage(lang.id); setMeView('main'); }}
+                      >
+                        <Text style={[styles.languageItemText, locale === lang.id && styles.languageItemTextSelected]}>{lang.name}</Text>
+                        {locale === lang.id && <Ionicons name="checkmark-circle" size={24} color="#FF0000" />}
+                      </TouchableOpacity>
+                    ))}
+                 </ScrollView>
+              </View>
+            )}
+
           </View>
-          
         ) : null}
       </View>
 
@@ -308,25 +310,25 @@ export default function HomeScreen({ route }) {
         <TouchableOpacity onPress={async () => { setActiveTab('Home'); setActiveQuery(await getAlgorithmicTopic()); }} style={styles.tab}>
            {activeTab === 'Home' && <View style={styles.activeTabLine} />}
            <Ionicons name={activeTab==='Home'?'home':'home-outline'} size={22} color={activeTab==='Home'?'#FF0000': (isDarkMode ? '#666' : '#999')} />
-           <Text style={[styles.tabText, activeTab==='Home' && {color:'#FF0000'}]}>Home</Text>
+           <Text style={[styles.tabText, activeTab==='Home' && {color:'#FF0000'}]}>{t('home')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => setActiveTab('Shorts')} style={styles.tab}>
            {activeTab === 'Shorts' && <View style={styles.activeTabLine} />}
            <Ionicons name={activeTab==='Shorts'?'play':'play-outline'} size={24} color={activeTab==='Shorts'?'#FF0000': (isDarkMode ? '#666' : '#999')} />
-           <Text style={[styles.tabText, activeTab==='Shorts' && {color:'#FF0000'}]}>Shorts</Text>
+           <Text style={[styles.tabText, activeTab==='Shorts' && {color:'#FF0000'}]}>{t('shorts')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => setActiveTab('Live')} style={styles.tab}>
            {activeTab === 'Live' && <View style={styles.activeTabLine} />}
            <Ionicons name={activeTab==='Live'?'radio':'radio-outline'} size={24} color={activeTab==='Live'?'#FF0000': (isDarkMode ? '#666' : '#999')} />
-           <Text style={[styles.tabText, activeTab==='Live' && {color:'#FF0000'}]}>Live</Text>
+           <Text style={[styles.tabText, activeTab==='Live' && {color:'#FF0000'}]}>{t('live')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => setActiveTab('ME')} style={styles.tab}>
            {(activeTab === 'ME' || activeTab === 'Settings') && <View style={styles.activeTabLine} />}
            <Ionicons name={(activeTab==='ME' || activeTab==='Settings') ? 'person' : 'person-outline'} size={22} color={(activeTab==='ME' || activeTab==='Settings') ? '#FF0000' : (isDarkMode ? '#666' : '#999')} />
-           <Text style={[styles.tabText, (activeTab==='ME' || activeTab==='Settings') && {color:'#FF0000'}]}>ME</Text>
+           <Text style={[styles.tabText, (activeTab==='ME' || activeTab==='Settings') && {color:'#FF0000'}]}>{t('me')}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -372,6 +374,12 @@ const getDynamicStyles = (isDark) => StyleSheet.create({
   meMenuTextContent: { flex: 1 },
   meMenuTitle: { color: isDark ? '#FFF' : '#000', fontSize: 16, fontWeight: '600', marginBottom: 4 },
   meMenuSubtitle: { color: isDark ? '#888' : '#666', fontSize: 12 },
-  meMenuBadge: { backgroundColor: '#FF3B30', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  meMenuBadgeText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' }
+
+  // [NEW] Language Sub-Screen Styles
+  subScreenHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: isDark ? '#1a1a1a' : '#EAEAEA', marginBottom: 20 },
+  subScreenTitle: { fontSize: 18, fontWeight: 'bold', color: isDark ? '#FFF' : '#000' },
+  languageItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 18, paddingHorizontal: 20, backgroundColor: isDark ? '#15171a' : '#FFFFFF', borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: isDark ? '#1f2229' : '#EAEAEA' },
+  languageItemSelected: { borderColor: '#FF0000', backgroundColor: isDark ? 'rgba(255, 0, 0, 0.05)' : 'rgba(255, 0, 0, 0.03)' },
+  languageItemText: { fontSize: 16, color: isDark ? '#FFF' : '#000' },
+  languageItemTextSelected: { color: '#FF0000', fontWeight: 'bold' }
 });
