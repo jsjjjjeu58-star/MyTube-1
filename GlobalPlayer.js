@@ -4,6 +4,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { createAudioPlayer } from 'expo-audio'; // 🚨 expo-av এর বদলে expo-audio যুক্ত করা হয়েছে 🚨
 import { Ionicons } from '@expo/vector-icons';
 import { DeviceEventEmitter } from 'react-native';
+import { useLanguage } from './LanguageContext';
 import { useNavigation } from '@react-navigation/native';
 import Slider from '@react-native-community/slider';
 import * as ScreenOrientation from 'expo-screen-orientation'; 
@@ -24,6 +25,8 @@ const MY_API_SERVER = "http://127.0.0.1:10000";
 export default function GlobalPlayer() {
   const navigation = useNavigation();
   const videoViewRef = useRef(null); 
+  const { locale } = useLanguage(); // re-render when language changes
+
   
   // 🚨 expo-audio প্লেয়ারের রেফারেন্স 🚨
   const syncAudioRef = useRef(null); 
@@ -581,12 +584,8 @@ export default function GlobalPlayer() {
                         resizeMode="cover"
                     />
                     <Ionicons name="headset" size={70} color="#00BFA5" />
-                    <Text style={{ color: '#00BFA5', marginTop: 15, fontSize: 16, fontWeight: 'bold' }}>
-                        ব্যাকগ্রাউন্ড অডিও মোড চলছে
-                    </Text>
-                    <Text style={{ color: '#DDD', marginTop: 5, fontSize: 12 }}>
-                        ভিডিও পুরোপুরি বন্ধ আছে (ডাটা সাশ্রয়ী)
-                    </Text>
+                    <Text style={{ color: '#00BFA5', marginTop: 15, fontSize: 16, fontWeight: 'bold' }}>{__translate('ব্যাকগ্রাউন্ড অডিও মোড চলছে')}</Text>
+                    <Text style={{ color: '#DDD', marginTop: 5, fontSize: 12 }}>{__translate('ভিডিও পুরোপুরি বন্ধ আছে (ডাটা সাশ্রয়ী)')}</Text>
                 </View>
             )}
 
@@ -606,7 +605,7 @@ export default function GlobalPlayer() {
              <View style={styles.topBar}>
                  <View style={{flex: 1}} />
                  <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSettingsMenu(true)}>
-                     <Ionicons name="settings-outline" size={28} color="#FFF" />
+                     <Ionicons name="settings-outline" size={28} color={isDarkMode ? '#FFF' : '#111'} />
                  </TouchableOpacity>
              </View>
              
@@ -628,7 +627,7 @@ export default function GlobalPlayer() {
                     }
                     triggerControls();
                 }}>
-                   <Ionicons name={isPlayingUI ? "pause-circle" : "play-circle"} size={75} color="#FFF" />
+                   <Ionicons name={isPlayingUI ? "pause-circle" : "play-circle"} size={75} color={isDarkMode ? '#FFF' : '#111'} />
                 </TouchableOpacity>
              </View>
 
@@ -668,7 +667,7 @@ export default function GlobalPlayer() {
                 <Text style={styles.timeTextRight}>{formatTime(duration)}</Text>
                 
                 <TouchableOpacity style={{marginLeft: 10}} onPress={toggleFullscreen}>
-                    <Ionicons name={isFullscreen ? "contract" : "expand"} size={24} color="#FFF" />
+                    <Ionicons name={isFullscreen ? "contract" : "expand"} size={24} color={isDarkMode ? '#FFF' : '#111'} />
                 </TouchableOpacity>
              </View>
           </View>
@@ -677,7 +676,7 @@ export default function GlobalPlayer() {
         <Modal visible={showSettingsMenu} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettingsMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
-                    <Text style={styles.modalTitle}>Player Settings</Text>
+                    <Text style={styles.modalTitle}>{__translate('Player Settings')}</Text>
                     
                     <TouchableOpacity style={styles.menuItem} onPress={() => {
                         setShowSettingsMenu(false);
@@ -686,12 +685,12 @@ export default function GlobalPlayer() {
                             WebBrowser.openBrowserAsync(ytUrl, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN });
                         });
                     }}>
-                        <Ionicons name="globe-outline" size={20} color="#FFF" style={styles.menuIcon} />
-                        <Text style={styles.menuText}>Open in Browser</Text>
+                        <Ionicons name="globe-outline" size={20} color={isDarkMode ? '#FFF' : '#111'} style={styles.menuIcon} />
+                        <Text style={styles.menuText}>{__translate('Open in Browser')}</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.menuItem} onPress={() => { setShowSettingsMenu(false); setShowSpeedMenu(true); }}>
-                        <Ionicons name="speedometer-outline" size={20} color="#FFF" style={styles.menuIcon} />
+                        <Ionicons name="speedometer-outline" size={20} color={isDarkMode ? '#FFF' : '#111'} style={styles.menuIcon} />
                         <Text style={styles.menuText}>Playback Speed ({currentSpeed}x)</Text>
                     </TouchableOpacity>
 
@@ -699,16 +698,16 @@ export default function GlobalPlayer() {
                         setShowSettingsMenu(false);
                         alert("Saved to Playlist successfully!");
                     }}>
-                        <Ionicons name="add-circle-outline" size={20} color="#FFF" style={styles.menuIcon} />
-                        <Text style={styles.menuText}>Save to Playlist</Text>
+                        <Ionicons name="add-circle-outline" size={20} color={isDarkMode ? '#FFF' : '#111'} style={styles.menuIcon} />
+                        <Text style={styles.menuText}>{__translate('Save to Playlist')}</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.menuItem} onPress={() => {
                         setShowSettingsMenu(false);
                         Share.share({ message: `Watch this awesome video: https://www.youtube.com/watch?v=${currentVideoIdRef.current}` });
                     }}>
-                        <Ionicons name="share-social-outline" size={20} color="#FFF" style={styles.menuIcon} />
-                        <Text style={styles.menuText}>Share</Text>
+                        <Ionicons name="share-social-outline" size={20} color={isDarkMode ? '#FFF' : '#111'} style={styles.menuIcon} />
+                        <Text style={styles.menuText}>{__translate('Share')}</Text>
                     </TouchableOpacity>
                 </TouchableOpacity>
             </TouchableOpacity>
@@ -717,7 +716,7 @@ export default function GlobalPlayer() {
         <Modal visible={showSpeedMenu} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSpeedMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
-                    <Text style={styles.modalTitle}>Select Speed</Text>
+                    <Text style={styles.modalTitle}>{__translate('Select Speed')}</Text>
                     {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map(s => (
                         <TouchableOpacity key={s} style={styles.menuItem} onPress={() => changeSpeed(s)}>
                             <Text style={[styles.menuText, currentSpeed === s && {color: '#FF0000', fontWeight: 'bold'}]}>
@@ -734,7 +733,7 @@ export default function GlobalPlayer() {
             <Ionicons name="alert-circle" size={50} color="#FFD700" />
             <Text style={styles.fallbackText}>{fallbackData.message}</Text>
             <TouchableOpacity style={styles.btn} onPress={() => { startPlayback(fallbackData.data); setFallbackData(null); }}>
-              <Text style={styles.btnText}>OK, Play Highest Quality</Text>
+              <Text style={styles.btnText}>{__translate('OK, Play Highest Quality')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -763,11 +762,11 @@ export default function GlobalPlayer() {
                             }
                         }
                     }}>
-                        <Ionicons name={isPlayingUI ? "pause" : "play"} size={22} color="#FFF" />
+                        <Ionicons name={isPlayingUI ? "pause" : "play"} size={22} color={isDarkMode ? '#FFF' : '#111'} />
                     </TouchableOpacity>
 
                     <TouchableOpacity onPress={closePlayer} style={styles.miniCtrlBtn}>
-                        <Ionicons name="close" size={24} color="#FFF" />
+                        <Ionicons name="close" size={24} color={isDarkMode ? '#FFF' : '#111'} />
                     </TouchableOpacity>
                 </View>
             </TouchableOpacity>

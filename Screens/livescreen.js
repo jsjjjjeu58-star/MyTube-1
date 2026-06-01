@@ -237,7 +237,7 @@ export default function LiveScreen() {
       <TouchableOpacity activeOpacity={0.9} onPress={() => navigation.navigate('Player', { videoId: item.id, videoData: item })}>
         <View style={styles.thumbnailContainer}>
           <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
-          <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>LIVE</Text></View>
+          <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>{__translate('LIVE')}</Text></View>
         </View>
       </TouchableOpacity>
 
@@ -266,11 +266,11 @@ export default function LiveScreen() {
       <View style={styles.header}>
         <View style={styles.logoContainer}>
             <Ionicons name="logo-youtube" size={28} color="#FF0000" />
-            <Text style={styles.logoText}>MyTube</Text>
+            <Text style={styles.logoText}>{__translate('MyTube')}</Text>
         </View>
         <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
-          <Text style={{ flex: 1, color: '#888', fontSize: 14 }}>সার্চ লাইভ...</Text>
-          <Ionicons name="search" size={18} color="#AAA" />
+          <Text style={{ flex: 1, color: '#888', fontSize: 14 }}>{__translate('সার্চ লাইভ...')}</Text>
+          <Ionicons name="search" size={18} color={isDarkMode ? '#AAA' : '#555'} />
         </TouchableOpacity>
       </View>
 

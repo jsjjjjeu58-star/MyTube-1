@@ -7,6 +7,10 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as NavigationBar from 'expo-navigation-bar';
 import * as Clipboard from 'expo-clipboard'; // 🎯 লিংক কপি করার জন্য এক্সপো ক্লিপবোর্ড ইম্পোর্ট
 
+// Theme & Language
+import { useTheme } from '../ThemeContext';
+import { useLanguage } from '../LanguageContext';
+
 const { width, height } = Dimensions.get('window');
 const PLAYER_HEIGHT = (width * 9) / 16; 
 const MY_API_SERVER = "http://127.0.0.1:10000"; 
@@ -15,6 +19,7 @@ export default function PlayerScreen({ route, navigation }) {
   const { videoId, videoData = {} } = route?.params || {};
   const { isDarkMode } = useTheme();
   const { t } = useLanguage();
+  const styles = getDynamicStyles(isDarkMode);
 
   const [relatedVideos, setRelatedVideos] = useState([]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -359,24 +364,24 @@ export default function PlayerScreen({ route, navigation }) {
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionRowContainer}>
           <TouchableOpacity style={styles.actionPill} onPress={loadDescription}>
-              <Ionicons name="document-text-outline" size={18} color="#FFF" />
-              <Text style={styles.actionPillText}>Description</Text>
+              <Ionicons name="document-text-outline" size={18} color={isDarkMode ? '#FFF' : '#111'} />
+              <Text style={styles.actionPillText}>{__translate('Description')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.actionPill} onPress={loadComments}>
-              <Ionicons name="chatbox-ellipses-outline" size={18} color="#FFF" />
-              <Text style={styles.actionPillText}>Comments</Text>
+              <Ionicons name="chatbox-ellipses-outline" size={18} color={isDarkMode ? '#FFF' : '#111'} />
+              <Text style={styles.actionPillText}>{__translate('Comments')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.actionPill} onPress={handleBackgroundPlay}>
-              <Ionicons name={isAudioMode ? "headset" : "headset-outline"} size={18} color={isAudioMode ? "#00BFA5" : "#FFF"} />
-              <Text style={[styles.actionPillText, isAudioMode && {color: '#00BFA5'}]}>Audio</Text>
+              <Ionicons name={isAudioMode ? "headset" : "headset-outline"} size={18} color={isAudioMode ? "#00BFA5" : (isDarkMode ? '#FFF' : '#111')} />
+              <Text style={[styles.actionPillText, isAudioMode && {color: '#00BFA5'}]}>{__translate('Audio')}</Text>
           </TouchableOpacity>
 
           {!videoData.localUri && (
               <TouchableOpacity style={styles.actionPill} onPress={openDownloadWindow}>
-                  <Ionicons name="download-outline" size={18} color="#FFF" />
-                  <Text style={styles.actionPillText}>Download</Text>
+                  <Ionicons name="download-outline" size={18} color={isDarkMode ? '#FFF' : '#111'} />
+                  <Text style={styles.actionPillText}>{__translate('Download')}</Text>
               </TouchableOpacity>
           )}
       </ScrollView>
@@ -408,21 +413,21 @@ export default function PlayerScreen({ route, navigation }) {
       {isLinkLoading && (
         <View style={styles.linkLoadingOverlay}>
             <ActivityIndicator size="large" color="#00BFA5" />
-            <Text style={styles.linkLoadingText}>Fetching video details via MyTube Server...</Text>
+            <Text style={styles.linkLoadingText}>{__translate('Fetching video details via MyTube Server...')}</Text>
         </View>
       )}
 
       <View style={styles.header}>
         <View style={styles.logoContainer}>
            <TouchableOpacity onPress={() => navigation.goBack()} style={{marginRight: 10}}>
-              <Ionicons name="arrow-back" size={24} color="#FFF" />
+              <Ionicons name="arrow-back" size={24} color={isDarkMode ? '#FFF' : '#111'} />
            </TouchableOpacity>
            <Ionicons name="logo-youtube" size={28} color="#FF0000" />
-           <Text style={styles.logoText}>MyTube</Text>
+           <Text style={styles.logoText}>{__translate('MyTube')}</Text>
         </View>
         <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
-          <Text style={{ flex: 1, color: '#888', fontSize: 14 }}>Search...</Text>
-          <Ionicons name="search" size={18} color="#AAA" />
+          <Text style={styles.searchPlaceholder}>{__translate('Search...')}</Text>
+          <Ionicons name="search" size={18} color={isDarkMode ? '#AAA' : '#555'} />
         </TouchableOpacity>
       </View>
 
@@ -430,7 +435,7 @@ export default function PlayerScreen({ route, navigation }) {
           {isInitialLoading && (
               <View style={styles.initialPlayerLoader}>
                   <ActivityIndicator size="large" color="#00BFA5" />
-                  <Text style={styles.initialLoaderText}>Loading Video...</Text>
+                  <Text style={styles.initialLoaderText}>{__translate('Loading Video...')}</Text>
               </View>
           )}
       </View>
@@ -478,9 +483,9 @@ export default function PlayerScreen({ route, navigation }) {
           <View style={styles.bottomSheetContentFull}>
             <View style={styles.modalDragIndicator} />
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Description</Text>
+              <Text style={styles.modalTitle}>{__translate('Description')}</Text>
               <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowDescModal(false)}>
-                <Ionicons name="close" size={20} color="#FFF" />
+                <Ionicons name="close" size={20} color={isDarkMode ? '#FFF' : '#111'} />
               </TouchableOpacity>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 10 }}>
@@ -493,7 +498,7 @@ export default function PlayerScreen({ route, navigation }) {
                 {!description ? (
                     <View style={{paddingVertical: 40, alignItems: 'center'}}>
                         <ActivityIndicator size="large" color="#00BFA5" />
-                        <Text style={{color: '#AAA', marginTop: 15}}>Loading Description...</Text>
+                        <Text style={[styles.loadingText, { marginTop: 15 }]}>{__translate('Loading Description...')}</Text>
                     </View>
                 ) : (
                     <Text style={styles.descText}>{renderDescriptionWithLinks(description)}</Text>
@@ -510,9 +515,9 @@ export default function PlayerScreen({ route, navigation }) {
           <View style={styles.bottomSheetContentFull}>
             <View style={styles.modalDragIndicator} />
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Comments</Text>
+              <Text style={styles.modalTitle}>{__translate('Comments')}</Text>
               <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowCommentModal(false)}>
-                <Ionicons name="close" size={20} color="#FFF" />
+                <Ionicons name="close" size={20} color={isDarkMode ? '#FFF' : '#111'} />
               </TouchableOpacity>
             </View>
 
@@ -520,7 +525,7 @@ export default function PlayerScreen({ route, navigation }) {
                 {isCommentsLoading ? (
                     <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 50}}>
                         <ActivityIndicator size="large" color="#00BFA5" />
-                        <Text style={{color: '#AAA', marginTop: 15}}>Loading Comments...</Text>
+                        <Text style={[styles.loadingText, { marginTop: 15 }]}>{__translate('Loading Comments...')}</Text>
                     </View>
                 ) : comments.length > 0 ? (
                     <FlatList 
@@ -581,7 +586,7 @@ export default function PlayerScreen({ route, navigation }) {
                 ) : (
                     <View style={styles.commentPlaceholder}>
                         <Ionicons name="chatbubble-ellipses-outline" size={60} color="#444" />
-                        <Text style={styles.commentPlaceholderText}>No comments found</Text>
+                        <Text style={styles.commentPlaceholderText}>{__translate('No comments found')}</Text>
                     </View>
                 )}
             </View>
@@ -598,25 +603,25 @@ export default function PlayerScreen({ route, navigation }) {
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }} />
               <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowDownloadModal(false)}>
-                <Ionicons name="close" size={20} color="#FFF" />
+                <Ionicons name="close" size={20} color={isDarkMode ? '#FFF' : '#111'} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.tabContainer}>
                 <TouchableOpacity style={[styles.tabButton, downloadType === 'video' && styles.activeTabButton]} onPress={() => changeDownloadType('video')}>
                     <Ionicons name="videocam" size={16} color={downloadType === 'video' ? '#FFF' : '#888'} />
-                    <Text style={[styles.tabText, downloadType === 'video' && styles.activeTabText]}>Video</Text>
+                    <Text style={[styles.tabText, downloadType === 'video' && styles.activeTabText]}>{__translate('Video')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.tabButton, downloadType === 'audio' && styles.activeTabButton]} onPress={() => changeDownloadType('audio')}>
                     <Ionicons name="musical-notes" size={16} color={downloadType === 'audio' ? '#FFF' : '#888'} />
-                    <Text style={[styles.tabText, downloadType === 'audio' && styles.activeTabText]}>Audio</Text>
+                    <Text style={[styles.tabText, downloadType === 'audio' && styles.activeTabText]}>{__translate('Audio')}</Text>
                 </TouchableOpacity>
             </View>
 
             {downloadStep === 'fetching' ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#00BFA5" />
-                <Text style={styles.loadingText}>Fetching links...</Text>
+                <Text style={styles.loadingText}>{__translate('Fetching links...')}</Text>
               </View>
             ) : (
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.qualityListContainer}>
@@ -646,104 +651,105 @@ export default function PlayerScreen({ route, navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#000' },
-    header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222', backgroundColor: '#0F0F0F' },
+const getDynamicStyles = (isDark) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: isDark ? '#000' : '#FFFFFF' },
+    header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: isDark ? '#222' : '#e6e6e6', backgroundColor: isDark ? '#0F0F0F' : '#F8F8F8' },
     logoContainer: { flexDirection: 'row', alignItems: 'center', width: 130 },
-    logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
-    searchBar: { flex: 1, flexDirection: 'row', backgroundColor: '#222', borderRadius: 20, paddingHorizontal: 12, alignItems: 'center', height: 38 },
+    logoText: { color: isDark ? '#FFF' : '#111', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
+    searchBar: { flex: 1, flexDirection: 'row', backgroundColor: isDark ? '#222' : '#eee', borderRadius: 20, paddingHorizontal: 12, alignItems: 'center', height: 38 },
+    searchPlaceholder: { flex: 1, color: isDark ? '#888' : '#666', fontSize: 14 },
 
-    playerWrapper: { width: '100%', height: PLAYER_HEIGHT, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
-    initialPlayerLoader: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+    playerWrapper: { width: '100%', height: PLAYER_HEIGHT, backgroundColor: isDark ? '#000' : '#FFFFFF', justifyContent: 'center', alignItems: 'center' },
+    initialPlayerLoader: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: isDark ? '#000' : '#FFFFFF', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
     initialLoaderText: { color: '#00BFA5', marginTop: 10, fontSize: 14, fontWeight: '500' },
 
     fullScreenLoader: { padding: 15 },
-    skeletonTitle: { height: 20, backgroundColor: '#1A1A1A', width: '90%', borderRadius: 4, marginBottom: 10 },
-    skeletonMeta: { height: 12, backgroundColor: '#1A1A1A', width: '60%', borderRadius: 4, marginBottom: 20 },
-    skeletonChannel: { height: 40, backgroundColor: '#1A1A1A', width: '100%', borderRadius: 8 },
+    skeletonTitle: { height: 20, backgroundColor: isDark ? '#1A1A1A' : '#eaeaea', width: '90%', borderRadius: 4, marginBottom: 10 },
+    skeletonMeta: { height: 12, backgroundColor: isDark ? '#1A1A1A' : '#eaeaea', width: '60%', borderRadius: 4, marginBottom: 20 },
+    skeletonChannel: { height: 40, backgroundColor: isDark ? '#1A1A1A' : '#eaeaea', width: '100%', borderRadius: 8 },
 
-    detailsContainer: { padding: 15, backgroundColor: '#0F0F0F' },
-    mainTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginBottom: 6 },
-    mainViews: { color: '#AAA', fontSize: 13, marginBottom: 15 },
+    detailsContainer: { padding: 15, backgroundColor: isDark ? '#0F0F0F' : '#FFFFFF' },
+    mainTitle: { color: isDark ? '#FFF' : '#111', fontSize: 18, fontWeight: 'bold', marginBottom: 6 },
+    mainViews: { color: isDark ? '#AAA' : '#666', fontSize: 13, marginBottom: 15 },
 
     actionRowContainer: { flexDirection: 'row', alignItems: 'center', paddingBottom: 5 },
     actionPill: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, marginRight: 20 },
-    actionPillText: { color: '#FFF', fontSize: 13, fontWeight: '600', marginLeft: 6 },
+    actionPillText: { color: isDark ? '#FFF' : '#111', fontSize: 13, fontWeight: '600', marginLeft: 6 },
 
-    divider: { height: 1, backgroundColor: '#222', marginVertical: 15 },
+    divider: { height: 1, backgroundColor: isDark ? '#222' : '#e6e6e6', marginVertical: 15 },
 
     channelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     channelLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-    channelAvatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12, backgroundColor: '#333' },
+    channelAvatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12, backgroundColor: isDark ? '#333' : '#ccc' },
     channelTextCol: { flex: 1 },
-    channelName: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
-    subCount: { color: '#AAA', fontSize: 12 },
-    subscribeBtn: { backgroundColor: '#FFF', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20 },
-    subscribeText: { color: '#000', fontSize: 14, fontWeight: 'bold' },
-    subscribedBtn: { backgroundColor: '#222' },
-    subscribedText: { color: '#FFF' },
+    channelName: { color: isDark ? '#FFF' : '#111', fontSize: 16, fontWeight: 'bold' },
+    subCount: { color: isDark ? '#AAA' : '#666', fontSize: 12 },
+    subscribeBtn: { backgroundColor: isDark ? '#FFF' : '#000', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20 },
+    subscribeText: { color: isDark ? '#000' : '#FFF', fontSize: 14, fontWeight: 'bold' },
+    subscribedBtn: { backgroundColor: isDark ? '#222' : '#eee' },
+    subscribedText: { color: isDark ? '#FFF' : '#111' },
 
-    recCard: { flexDirection: 'row', padding: 10, backgroundColor: '#0F0F0F' },
+    recCard: { flexDirection: 'row', padding: 10, backgroundColor: isDark ? '#0F0F0F' : '#FFFFFF' },
     thumbWrapper: { position: 'relative' },
-    recThumb: { width: 150, height: 85, borderRadius: 10, backgroundColor: '#222' },
+    recThumb: { width: 150, height: 85, borderRadius: 10, backgroundColor: isDark ? '#222' : '#ddd' },
     durationBadge: { position: 'absolute', bottom: 6, right: 6, backgroundColor: 'rgba(0, 0, 0, 0.8)', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
     durationText: { color: '#FFF', fontSize: 11, fontWeight: 'bold' },
     recInfo: { flex: 1, marginLeft: 12, justifyContent: 'flex-start', paddingTop: 2 },
-    recTitle: { color: '#FFF', fontSize: 14, fontWeight: '500', lineHeight: 20 },
-    recMeta: { color: '#AAA', fontSize: 12, marginTop: 4 },
-    recViewsInfo: { color: '#888', fontSize: 11, marginTop: 2 },
+    recTitle: { color: isDark ? '#FFF' : '#111', fontSize: 14, fontWeight: '500', lineHeight: 20 },
+    recMeta: { color: isDark ? '#AAA' : '#666', fontSize: 12, marginTop: 4 },
+    recViewsInfo: { color: isDark ? '#888' : '#555', fontSize: 11, marginTop: 2 },
 
     bottomSheetOverlayFull: { flex: 1, justifyContent: 'flex-end' },
-    bottomSheetContentFull: { backgroundColor: '#1E1E1E', borderTopLeftRadius: 25, borderTopRightRadius: 25, paddingHorizontal: 20, paddingTop: 10, paddingBottom: Platform.OS === 'ios' ? 30 : 15, maxHeight: height * 0.75, minHeight: 450, elevation: 15, zIndex: 10 },
+    bottomSheetContentFull: { backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF', borderTopLeftRadius: 25, borderTopRightRadius: 25, paddingHorizontal: 20, paddingTop: 10, paddingBottom: Platform.OS === 'ios' ? 30 : 15, maxHeight: height * 0.75, minHeight: 450, elevation: 15, zIndex: 10 },
 
-    descTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+    descTitle: { color: isDark ? '#FFF' : '#111', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
     descMetaRow: { flexDirection: 'row', marginBottom: 10 },
-    descMetaText: { color: '#AAA', fontSize: 13, marginRight: 15, fontWeight: 'bold' },
-    descText: { color: '#CCC', fontSize: 14, lineHeight: 22 },
+    descMetaText: { color: isDark ? '#AAA' : '#666', fontSize: 13, marginRight: 15, fontWeight: 'bold' },
+    descText: { color: isDark ? '#CCC' : '#333', fontSize: 14, lineHeight: 22 },
     clickableLink: { color: '#00BFA5', textDecorationLine: 'underline', fontWeight: 'bold' },
 
-    commentContainerBlock: { borderBottomWidth: 1, borderBottomColor: '#2A2A2A', paddingVertical: 6 },
+    commentContainerBlock: { borderBottomWidth: 1, borderBottomColor: isDark ? '#2A2A2A' : '#e6e6e6', paddingVertical: 6 },
     commentItem: { flexDirection: 'row', paddingHorizontal: 5, marginTop: 6 },
-    commentAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 12, backgroundColor: '#333' },
+    commentAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 12, backgroundColor: isDark ? '#333' : '#ccc' },
     commentTextCol: { flex: 1 },
-    commentAuthor: { color: '#AAA', fontSize: 13, fontWeight: 'bold' },
-    commentTime: { color: '#777', fontSize: 11 },
-    commentText: { color: '#FFF', fontSize: 14, lineHeight: 20, marginTop: 2 },
+    commentAuthor: { color: isDark ? '#AAA' : '#444', fontSize: 13, fontWeight: 'bold' },
+    commentTime: { color: isDark ? '#777' : '#666', fontSize: 11 },
+    commentText: { color: isDark ? '#FFF' : '#111', fontSize: 14, lineHeight: 20, marginTop: 2 },
     commentActionRow: { flexDirection: 'row', marginTop: 8, alignItems: 'center' },
-    actionBtnItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#2A2A2A', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+    actionBtnItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? '#2A2A2A' : '#f0f0f0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
     actionBtnText: { color: '#00BFA5', fontSize: 11, fontWeight: 'bold', marginLeft: 4 },
 
-    nestedRepliesBox: { marginLeft: 48, marginTop: 5, backgroundColor: '#161616', borderRadius: 8, padding: 8 },
-    replyItemRow: { flexDirection: 'row', marginTop: 10, borderBottomWidth: 1, borderBottomColor: '#222', paddingBottom: 8 },
-    replyAvatar: { width: 26, height: 26, borderRadius: 13, marginRight: 10, backgroundColor: '#333' },
-    replyAuthor: { color: '#999', fontSize: 12, fontWeight: 'bold' },
-    replyText: { color: '#DDD', fontSize: 13, lineHeight: 18, marginTop: 1 },
+    nestedRepliesBox: { marginLeft: 48, marginTop: 5, backgroundColor: isDark ? '#161616' : '#f9f9f9', borderRadius: 8, padding: 8 },
+    replyItemRow: { flexDirection: 'row', marginTop: 10, borderBottomWidth: 1, borderBottomColor: isDark ? '#222' : '#e6e6e6', paddingBottom: 8 },
+    replyAvatar: { width: 26, height: 26, borderRadius: 13, marginRight: 10, backgroundColor: isDark ? '#333' : '#ccc' },
+    replyAuthor: { color: isDark ? '#999' : '#444', fontSize: 12, fontWeight: 'bold' },
+    replyText: { color: isDark ? '#DDD' : '#333', fontSize: 13, lineHeight: 18, marginTop: 1 },
 
     commentPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 30 },
-    commentPlaceholderText: { color: '#AAA', fontSize: 16, marginTop: 15 },
+    commentPlaceholderText: { color: isDark ? '#AAA' : '#666', fontSize: 16, marginTop: 15 },
 
     modalOverlay: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'flex-end' },
     modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
-    modalContent: { width: '50%', backgroundColor: '#1E1E1E', paddingHorizontal: 12, paddingTop: 10, maxHeight: height * 0.75, minHeight: 350, zIndex: 10 },
-    modalDragIndicator: { width: 35, height: 4, backgroundColor: '#444', borderRadius: 2, alignSelf: 'center', marginBottom: 15 },
+    modalContent: { width: '50%', backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF', paddingHorizontal: 12, paddingTop: 10, maxHeight: height * 0.75, minHeight: 350, zIndex: 10 },
+    modalDragIndicator: { width: 35, height: 4, backgroundColor: isDark ? '#444' : '#999', borderRadius: 2, alignSelf: 'center', marginBottom: 15 },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-    modalTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
-    modalCloseBtn: { padding: 6, backgroundColor: '#2A2A2A', borderRadius: 15, marginLeft: 5 },
+    modalTitle: { color: isDark ? '#FFF' : '#111', fontSize: 18, fontWeight: 'bold' },
+    modalCloseBtn: { padding: 6, backgroundColor: isDark ? '#2A2A2A' : '#f0f0f0', borderRadius: 15, marginLeft: 5 },
 
-    tabContainer: { flexDirection: 'row', backgroundColor: '#111', borderRadius: 10, padding: 3, marginBottom: 15 },
+    tabContainer: { flexDirection: 'row', backgroundColor: isDark ? '#111' : '#F0F0F0', borderRadius: 10, padding: 3, marginBottom: 15 },
     tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8 },
-    activeTabButton: { backgroundColor: '#2A2A2A' },
-    tabText: { color: '#888', fontSize: 12, fontWeight: 'bold', marginLeft: 6 }, 
-    activeTabText: { color: '#FFF' },
+    activeTabButton: { backgroundColor: isDark ? '#2A2A2A' : '#e6e6e6' },
+    tabText: { color: isDark ? '#888' : '#666', fontSize: 12, fontWeight: 'bold', marginLeft: 6 }, 
+    activeTabText: { color: isDark ? '#FFF' : '#111' },
 
     loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    loadingText: { color: '#AAA', marginTop: 12, fontSize: 13 },
+    loadingText: { color: isDark ? '#AAA' : '#666', marginTop: 12, fontSize: 13 },
     qualityListContainer: { paddingBottom: 10 },
-    qualityCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#282828', padding: 10, borderRadius: 12, marginBottom: 10 },
+    qualityCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: isDark ? '#282828' : '#FFFFFF', padding: 10, borderRadius: 12, marginBottom: 10 },
     qualityInfoLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
     qualityIconBg: { backgroundColor: 'rgba(0, 191, 165, 0.1)', padding: 8, borderRadius: 10 },
-    qualityText: { color: '#FFF', fontSize: 14, fontWeight: 'bold' }, 
-    qualitySubText: { color: '#888', fontSize: 10, marginTop: 2 }, 
+    qualityText: { color: isDark ? '#FFF' : '#111', fontSize: 14, fontWeight: 'bold' }, 
+    qualitySubText: { color: isDark ? '#888' : '#666', fontSize: 10, marginTop: 2 }, 
     downloadIconBtn: { padding: 5 },
 
     linkLoadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 999 },

@@ -4,6 +4,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio'; 
 import { Ionicons } from '@expo/vector-icons';
 import { DeviceEventEmitter } from 'react-native';
+import { useLanguage } from '../LanguageContext';
 import { useNavigation } from '@react-navigation/native';
 import Slider from '@react-native-community/slider';
 import * as ScreenOrientation from 'expo-screen-orientation'; 
@@ -61,6 +62,8 @@ export default function GlobalPlayer() {
   const navigation = useNavigation();
   const videoViewRef = useRef(null); 
   const syncAudioRef = useRef(null); 
+  const { locale } = useLanguage(); // re-render when language changes
+
   
   const currentVideoIdRef = useRef(null);
   const fetchIdRef = useRef(0);
@@ -603,12 +606,8 @@ export default function GlobalPlayer() {
                         resizeMode="cover"
                     />
                     <Ionicons name="headset" size={70} color="#00BFA5" />
-                    <Text style={{ color: '#00BFA5', marginTop: 15, fontSize: 16, fontWeight: 'bold' }}>
-                        ব্যাকগ্রাউন্ড অডিও মোড চলছে
-                    </Text>
-                    <Text style={{ color: '#DDD', marginTop: 5, fontSize: 12 }}>
-                        লক স্ক্রিন থেকেও নিয়ন্ত্রণ করা যাবে
-                    </Text>
+                    <Text style={{ color: '#00BFA5', marginTop: 15, fontSize: 16, fontWeight: 'bold' }}>{__translate('ব্যাকগ্রাউন্ড অডিও মোড চলছে')}</Text>
+                    <Text style={{ color: '#DDD', marginTop: 5, fontSize: 12 }}>{__translate('লক স্ক্রিন থেকেও নিয়ন্ত্রণ করা যাবে')}</Text>
                 </View>
             )}
 
@@ -686,7 +685,7 @@ export default function GlobalPlayer() {
         <Modal visible={showSettingsMenu} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettingsMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
-                    <Text style={styles.modalTitle}>Player Settings</Text>
+                    <Text style={styles.modalTitle}>{__translate('Player Settings')}</Text>
                     
                     <TouchableOpacity style={styles.menuItem} onPress={() => {
                         setShowSettingsMenu(false);
@@ -696,7 +695,7 @@ export default function GlobalPlayer() {
                         });
                     }}>
                         <Ionicons name="globe-outline" size={20} color="#FFF" style={styles.menuIcon} />
-                        <Text style={styles.menuText}>Open in Browser</Text>
+                        <Text style={styles.menuText}>{__translate('Open in Browser')}</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.menuItem} onPress={() => { setShowSettingsMenu(false); setShowSpeedMenu(true); }}>
@@ -729,7 +728,7 @@ export default function GlobalPlayer() {
                         }
                     }}>
                         <Ionicons name="add-circle-outline" size={20} color="#FFF" style={styles.menuIcon} />
-                        <Text style={styles.menuText}>Save to Playlist</Text>
+                        <Text style={styles.menuText}>{__translate('Save to Playlist')}</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.menuItem} onPress={() => {
@@ -737,7 +736,7 @@ export default function GlobalPlayer() {
                         Share.share({ message: `Watch this awesome video: https://www.youtube.com/watch?v=${currentVideoIdRef.current}` });
                     }}>
                         <Ionicons name="share-social-outline" size={20} color="#FFF" style={styles.menuIcon} />
-                        <Text style={styles.menuText}>Share</Text>
+                        <Text style={styles.menuText}>{__translate('Share')}</Text>
                     </TouchableOpacity>
                 </TouchableOpacity>
             </TouchableOpacity>
@@ -746,7 +745,7 @@ export default function GlobalPlayer() {
         <Modal visible={showSpeedMenu} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSpeedMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
-                    <Text style={styles.modalTitle}>Select Speed</Text>
+                    <Text style={styles.modalTitle}>{__translate('Select Speed')}</Text>
                     {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map(s => (
                         <TouchableOpacity key={s} style={styles.menuItem} onPress={() => changeSpeed(s)}>
                             <Text style={[styles.menuText, currentSpeed === s && {color: '#FF0000', fontWeight: 'bold'}]}>
@@ -763,7 +762,7 @@ export default function GlobalPlayer() {
             <Ionicons name="alert-circle" size={50} color="#FFD700" />
             <Text style={styles.fallbackText}>{fallbackData.message}</Text>
             <TouchableOpacity style={styles.btn} onPress={() => { startPlayback(fallbackData.data); setFallbackData(null); }}>
-              <Text style={styles.btnText}>OK, Play Highest Quality</Text>
+              <Text style={styles.btnText}>{__translate('OK, Play Highest Quality')}</Text>
             </TouchableOpacity>
           </View>
         )}

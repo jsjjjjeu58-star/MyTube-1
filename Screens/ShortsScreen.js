@@ -272,11 +272,11 @@ export default function ShortsScreen({ initialVideoId, route }) {
       <View style={styles.header}>
         <View style={styles.logoContainer}>
            <Ionicons name="logo-youtube" size={28} color="#FF0000" />
-           <Text style={styles.logoText}>MyTube</Text>
+           <Text style={styles.logoText}>{__translate('MyTube')}</Text>
         </View>
         <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
           <Text style={{ flex: 1, color: isDarkMode ? '#888' : '#666', fontSize: 14 }}>{t('search') || 'সার্চ...'}</Text>
-          <Ionicons name="search" size={18} color="#AAA" />
+          <Ionicons name="search" size={18} color={isDarkMode ? '#AAA' : '#555'} />
         </TouchableOpacity>
       </View>
 
@@ -297,7 +297,7 @@ export default function ShortsScreen({ initialVideoId, route }) {
 
       {showMuteIcon && (
         <View style={styles.muteIconContainer} pointerEvents="none">
-          <Ionicons name="volume-mute" size={24} color="#FFF" />
+          <Ionicons name="volume-mute" size={24} color={isDarkMode ? '#FFF' : '#111'} />
         </View>
       )}
 
@@ -313,8 +313,8 @@ export default function ShortsScreen({ initialVideoId, route }) {
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.nativeShareBtn} onPress={handleShare} activeOpacity={0.8}>
-              <Ionicons name="arrow-redo-outline" size={18} color="#FFF" />
-              <Text style={styles.nativeShareText}>Share</Text>
+              <Ionicons name="arrow-redo-outline" size={18} color={isDarkMode ? '#FFF' : '#111'} />
+              <Text style={styles.nativeShareText}>{__translate('Share')}</Text>
             </TouchableOpacity>
         </View>
       )}
@@ -322,7 +322,7 @@ export default function ShortsScreen({ initialVideoId, route }) {
       {isAutoSkipping && (
         <View style={styles.skipOverlay}>
           <ActivityIndicator size="large" color="#FF0000" />
-          <Text style={styles.skipText}>অ্যাড ফিল্টার হচ্ছে...</Text>
+          <Text style={styles.skipText}>{__translate('অ্যাড ফিল্টার হচ্ছে...')}</Text>
         </View>
       )}
 

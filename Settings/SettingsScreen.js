@@ -32,6 +32,7 @@ export default function SettingsScreen() {
   // Theme & Language hooks
   const { isDarkMode } = useTheme();
   const { t } = useLanguage();
+  const styles = getDynamicStyles(isDarkMode);
 
   useEffect(() => {
     const loadSavedSettings = async () => {
@@ -183,13 +184,13 @@ export default function SettingsScreen() {
   const MainMenuCard = ({ icon, iconBg, title, subtitle, onPress }) => (
     <TouchableOpacity activeOpacity={0.8} style={styles.mainMenuCard} onPress={onPress}>
       <View style={[styles.sectionIcon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={20} color="#FFF" />
+        <Ionicons name={icon} size={20} color={isDarkMode ? '#FFF' : '#111'} />
       </View>
       <View style={{ flex: 1, marginLeft: 12 }}>
         <Text style={styles.sectionTitle}>{title}</Text>
         <Text style={styles.sectionSubtitle}>{subtitle}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={20} color="#7b8db0" />
+      <Ionicons name="chevron-forward" size={20} color={isDarkMode ? '#7b8db0' : '#556'} />
     </TouchableOpacity>
   );
 
@@ -208,7 +209,7 @@ export default function SettingsScreen() {
           <View style={{ marginLeft: 12 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>{label}</Text>
-              {label.includes('Default') && <Text style={styles.tagDefault}>Default</Text>}
+              {label.includes('Default') && <Text style={styles.tagDefault}>{__translate('Default')}</Text>}
             </View>
             {!!desc && <Text style={styles.optionDesc}>{desc}</Text>}
           </View>
@@ -224,7 +225,7 @@ export default function SettingsScreen() {
   const SubScreenHeader = ({ title }) => (
     <View style={styles.subScreenHeader}>
       <TouchableOpacity style={styles.backButton} onPress={() => setCurrentView('main')}>
-        <Ionicons name="arrow-back" size={24} color="#e8edf8" />
+        <Ionicons name="arrow-back" size={24} color={isDarkMode ? '#e8edf8' : '#111'} />
       </TouchableOpacity>
       <Text style={styles.subScreenTitle}>{title}</Text>
       <View style={{ width: 40 }} />
@@ -244,30 +245,30 @@ export default function SettingsScreen() {
 
           <View style={styles.settingsContainer}>
             <MainMenuCard 
-              icon="tv-outline" iconBg="#1a3a6e" title="Long Video Quality" subtitle={selectedMainQuality}
+              icon="tv-outline" iconBg="#1a3a6e" title={__translate('Long Video Quality')} subtitle={selectedMainQuality}
               onPress={() => setCurrentView('longVideo')}
             />
             <MainMenuCard 
-              icon="phone-portrait-outline" iconBg="#2d1a5c" title="Shorts Video Quality" subtitle={selectedShortQuality}
+              icon="phone-portrait-outline" iconBg="#2d1a5c" title={__translate('Shorts Video Quality')} subtitle={selectedShortQuality}
               onPress={() => setCurrentView('shortVideo')}
             />
             <MainMenuCard 
-              icon="folder-open-outline" iconBg="#0d3d28" title="Download Location" subtitle={selectedLocation.split('/').pop() || 'MyTube'}
+              icon="folder-open-outline" iconBg="#0d3d28" title={__translate('Download Location')} subtitle={selectedLocation.split('/').pop() || 'MyTube'}
               onPress={() => setCurrentView('location')}
             />
             <MainMenuCard 
-              icon="time-outline" iconBg="#3d2200" title="Shorts Cache Limit" subtitle="ক্যাশ সময়সীমা নির্ধারণ করুন"
+              icon="time-outline" iconBg="#3d2200" title={__translate('Shorts Cache Limit')} subtitle={__translate('ক্যাশ সময়সীমা নির্ধারণ করুন')}
               onPress={() => setCurrentView('cacheLimit')}
             />
           </View>
-          <Text style={styles.bottomNote}>সেটিংস স্বয়ংক্রিয়ভাবে সংরক্ষিত হয়</Text>
+          <Text style={styles.bottomNote}>{__translate('সেটিংস স্বয়ংক্রিয়ভাবে সংরক্ষিত হয়')}</Text>
         </ScrollView>
       )}
 
       {/* ---------------- LONG VIDEO SUB-SCREEN ---------------- */}
       {currentView === 'longVideo' && (
         <View style={{ flex: 1 }}>
-          <SubScreenHeader title="Long Video Quality" />
+          <SubScreenHeader title={__translate('Long Video Quality')} />
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.subListContent}>
             <View style={styles.optionsWrapper}>
               {longVideoOptions.map((opt, index) => {
@@ -291,7 +292,7 @@ export default function SettingsScreen() {
       {/* ---------------- SHORT VIDEO SUB-SCREEN ---------------- */}
       {currentView === 'shortVideo' && (
         <View style={{ flex: 1 }}>
-          <SubScreenHeader title="Shorts Video Quality" />
+          <SubScreenHeader title={__translate('Shorts Video Quality')} />
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.subListContent}>
             <View style={styles.optionsWrapper}>
               {shortVideoOptions.map((opt, index) => {
@@ -314,7 +315,7 @@ export default function SettingsScreen() {
       {/* ---------------- DOWNLOAD LOCATION SUB-SCREEN ---------------- */}
       {currentView === 'location' && (
         <View style={{ flex: 1 }}>
-          <SubScreenHeader title="Download Location" />
+          <SubScreenHeader title={__translate('Download Location')} />
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.subListContent}>
             <View style={styles.optionsWrapper}>
               {downloadLocations.map((loc, index) => {
@@ -342,7 +343,7 @@ export default function SettingsScreen() {
       {/* ---------------- CACHE LIMIT SUB-SCREEN ---------------- */}
       {currentView === 'cacheLimit' && (
         <View style={{ flex: 1 }}>
-          <SubScreenHeader title="Cache Limit Time" />
+          <SubScreenHeader title={__translate('Cache Limit Time')} />
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.subListContent}>
             <View style={styles.optionsWrapper}>
               {cacheLimitOptions.map((opt, index) => {
@@ -370,7 +371,7 @@ export default function SettingsScreen() {
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color="#3d8bff" />
-            <Text style={styles.loadingText}>Applying Settings...</Text>
+            <Text style={styles.loadingText}>{__translate('Applying Settings...')}</Text>
           </View>
         </View>
       )}
@@ -378,30 +379,30 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0d14' },
+const getDynamicStyles = (isDark) => ({
+  container: { flex: 1, backgroundColor: isDark ? '#0a0d14' : '#F7F7F8' },
   scrollContent: { paddingBottom: 40, paddingTop: 10 },
   
   headerTitleContainer: { alignItems: 'center', marginBottom: 25, marginTop: 10 },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#e8edf8', letterSpacing: 0.5 },
-  headerSubtitle: { fontSize: 12, color: '#4a5568', marginTop: 4 },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: isDark ? '#e8edf8' : '#111', letterSpacing: 0.5 },
+  headerSubtitle: { fontSize: 12, color: isDark ? '#4a5568' : '#666', marginTop: 4 },
   
   settingsContainer: { paddingHorizontal: 16, gap: 12 },
   
-  mainMenuCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#161c2d', borderWidth: 1, borderColor: '#1e2a42', borderRadius: 16, paddingVertical: 16, paddingHorizontal: 16 },
+  mainMenuCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? '#161c2d' : '#fff', borderWidth: 1, borderColor: isDark ? '#1e2a42' : '#e6e6e6', borderRadius: 16, paddingVertical: 16, paddingHorizontal: 16 },
   sectionIcon: { width: 38, height: 38, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  sectionTitle: { fontSize: 15, fontWeight: '600', color: '#e8edf8' },
-  sectionSubtitle: { fontSize: 12, color: '#7b8db0', marginTop: 4 },
+  sectionTitle: { fontSize: 15, fontWeight: '600', color: isDark ? '#e8edf8' : '#111' },
+  sectionSubtitle: { fontSize: 12, color: isDark ? '#7b8db0' : '#666', marginTop: 4 },
   
-  subScreenHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10, paddingVertical: 15, backgroundColor: '#161c2d', borderBottomWidth: 1, borderBottomColor: '#1e2a42' },
+  subScreenHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10, paddingVertical: 15, backgroundColor: isDark ? '#161c2d' : '#fff', borderBottomWidth: 1, borderBottomColor: isDark ? '#1e2a42' : '#e6e6e6' },
   backButton: { padding: 10 },
-  subScreenTitle: { fontSize: 16, fontWeight: 'bold', color: '#e8edf8' },
+  subScreenTitle: { fontSize: 16, fontWeight: 'bold', color: isDark ? '#e8edf8' : '#111' },
   subListContent: { padding: 16, paddingBottom: 40 },
   
-  optionsWrapper: { backgroundColor: '#161c2d', borderRadius: 16, borderWidth: 1, borderColor: '#1e2a42', overflow: 'hidden' },
+  optionsWrapper: { backgroundColor: isDark ? '#161c2d' : '#fff', borderRadius: 16, borderWidth: 1, borderColor: isDark ? '#1e2a42' : '#e6e6e6', overflow: 'hidden' },
   
   optionItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, position: 'relative' },
-  optionItemSelected: { backgroundColor: 'rgba(61,139,255,0.06)' },
+  optionItemSelected: { backgroundColor: isDark ? 'rgba(61,139,255,0.06)' : 'rgba(61,139,255,0.04)' },
   activeIndicatorLine: { position: 'absolute', left: 0, top: '20%', bottom: '20%', width: 3, backgroundColor: '#3d8bff', borderTopRightRadius: 3, borderBottomRightRadius: 3 },
   
   optionLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
@@ -409,26 +410,26 @@ const styles = StyleSheet.create({
   qualityBadge: { minWidth: 46, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 5, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   qualityBadgeText: { fontSize: 11, fontWeight: 'bold' },
   
-  optionLabel: { fontSize: 14, color: '#e8edf8' },
-  optionLabelSelected: { color: '#c8d8ff', fontWeight: 'bold' },
-  optionDesc: { fontSize: 11, color: '#7b8db0', marginTop: 3 },
+  optionLabel: { fontSize: 14, color: isDark ? '#e8edf8' : '#111' },
+  optionLabelSelected: { color: isDark ? '#c8d8ff' : '#234', fontWeight: 'bold' },
+  optionDesc: { fontSize: 11, color: isDark ? '#7b8db0' : '#666', marginTop: 3 },
   
-  radioOuter: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: '#1e2a42', justifyContent: 'center', alignItems: 'center' },
+  radioOuter: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: isDark ? '#1e2a42' : '#e6e6e6', justifyContent: 'center', alignItems: 'center' },
   radioOuterSelected: { borderColor: '#3d8bff' },
   radioInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#3d8bff' },
   
-  optionDivider: { height: 1, backgroundColor: '#1e2a42', opacity: 0.5, marginHorizontal: 16 },
+  optionDivider: { height: 1, backgroundColor: isDark ? '#1e2a42' : '#e6e6e6', opacity: 0.5, marginHorizontal: 16 },
   
   tagDefault: { fontSize: 10, paddingVertical: 1, paddingHorizontal: 6, borderRadius: 4, backgroundColor: 'rgba(255,200,50,0.1)', color: '#ffcc50', borderColor: 'rgba(255,200,50,0.2)', borderWidth: 1, marginLeft: 8, overflow: 'hidden' },
   
   storageIconWrapper: { width: 30, alignItems: 'center' },
   
-  timeChip: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: '#1e2a42' },
-  timeChipText: { fontSize: 11, color: '#7b8db0' },
+  timeChip: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 5, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderWidth: 1, borderColor: isDark ? '#1e2a42' : '#e6e6e6' },
+  timeChipText: { fontSize: 11, color: isDark ? '#7b8db0' : '#666' },
   
-  bottomNote: { textAlign: 'center', fontSize: 11, color: '#4a5568', marginTop: 15, opacity: 0.8 },
+  bottomNote: { textAlign: 'center', fontSize: 11, color: isDark ? '#4a5568' : '#666', marginTop: 15, opacity: 0.8 },
   
   loadingOverlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', zIndex: 999 },
-  loadingBox: { backgroundColor: '#161c2d', padding: 25, borderRadius: 15, alignItems: 'center', borderWidth: 1, borderColor: '#1e2a42' },
-  loadingText: { color: '#e8edf8', marginTop: 15, fontSize: 15, fontWeight: 'bold' }
+  loadingBox: { backgroundColor: isDark ? '#161c2d' : '#fff', padding: 25, borderRadius: 15, alignItems: 'center', borderWidth: 1, borderColor: isDark ? '#1e2a42' : '#e6e6e6' },
+  loadingText: { color: isDark ? '#e8edf8' : '#111', marginTop: 15, fontSize: 15, fontWeight: 'bold' }
 });

@@ -92,7 +92,7 @@ export default function HistoryPage() {
       ) : historyData.length === 0 ? (
         <View style={styles.centerContent}>
           <Ionicons name="time-outline" size={64} color="#333" />
-          <Text style={styles.emptyText}>You have no watch history yet.</Text>
+          <Text style={styles.emptyText}>{__translate('You have no watch history yet.')}</Text>
         </View>
       ) : (
         <FlatList
@@ -109,7 +109,7 @@ export default function HistoryPage() {
                 
                 {/* তারিখ এবং চ্যানেল */}
                 <Text style={styles.meta}>
-                  <Ionicons name="calendar-outline" size={12} color="#AAA" /> {item.date || 'Unknown Date'}  •  {item.channel}
+                  <Ionicons name="calendar-outline" size={12} color={isDarkMode ? '#AAA' : '#555'} /> {item.date || 'Unknown Date'}  •  {item.channel}
                 </Text>
                 
                 {/* ইউটিউব লিংক */}

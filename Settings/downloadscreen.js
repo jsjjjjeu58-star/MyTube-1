@@ -230,7 +230,7 @@ export default function DownloadScreen({ navigation }) {
           activeDownloads.length === 0 && completedDownloads.length === 0 && (
             <View style={styles.empty}>
               <Ionicons name="download-outline" size={80} color="#333" />
-              <Text style={styles.emptyText}>কোনো ডাউনলোড পাওয়া যায়নি</Text>
+              <Text style={styles.emptyText}>{__translate('কোনো ডাউনলোড পাওয়া যায়নি')}</Text>
             </View>
           )
         }

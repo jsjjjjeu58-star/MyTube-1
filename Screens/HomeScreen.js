@@ -204,7 +204,7 @@ export default function HomeScreen({ route }) {
         <View style={styles.header}>
           <View style={styles.logoContainer}>
              <Ionicons name="logo-youtube" size={28} color="#FF0000" />
-             <Text style={styles.logoText}>MyTube</Text>
+             <Text style={styles.logoText}>{__translate('MyTube')}</Text>
           </View>
           <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
             <Text style={{ flex: 1, color: isDarkMode ? '#888' : '#666', fontSize: 14 }}>{searchQuery || t('search')}</Text>

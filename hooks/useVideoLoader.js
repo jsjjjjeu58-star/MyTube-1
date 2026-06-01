@@ -109,7 +109,7 @@ export const useVideoLoader = (videoUrl, quality = '720') => {
  *     return (
  *       <View style={styles.loadingContainer}>
  *         <ActivityIndicator size="large" color="#fff" />
- *         <Text>ভিডিও লোড হচ্ছে...</Text>
+ *         <Text>{__translate('ভিডিও লোড হচ্ছে...')}</Text>
  *       </View>
  *     );
  *   }
@@ -119,7 +119,7 @@ export const useVideoLoader = (videoUrl, quality = '720') => {
  *       <View style={styles.errorContainer}>
  *         <Text>Error: {error}</Text>
  *         <TouchableOpacity onPress={retry}>
- *           <Text>পুনরায় চেষ্টা করুন</Text>
+ *           <Text>{__translate('পুনরায় চেষ্টা করুন')}</Text>
  *         </TouchableOpacity>
  *       </View>
  *     );

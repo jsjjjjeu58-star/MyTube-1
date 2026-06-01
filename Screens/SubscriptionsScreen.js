@@ -110,7 +110,7 @@ export default function SubscriptionsScreen() {
       ) : subscribedChannels.length === 0 ? (
         <View style={styles.centerContent}>
           <Ionicons name="notifications-off-outline" size={64} color={isDarkMode ? '#666' : '#333'} />
-          <Text style={[styles.emptyText, { color: isDarkMode ? '#AAA' : '#666' }]}>You haven't subscribed to any channel yet.</Text>
+          <Text style={[styles.emptyText, { color: isDarkMode ? '#AAA' : '#666' }]}>{__translate('You haven\'t subscribed to any channel yet.')}</Text>
         </View>
       ) : (
         <FlatList 
