@@ -379,4 +379,4 @@ const getDynamicStyles = (isDark) => StyleSheet.create({
   languageItemSelected: { borderColor: '#FF0000', backgroundColor: isDark ? 'rgba(255, 0, 0, 0.05)' : 'rgba(255, 0, 0, 0.03)' },
   languageItemText: { fontSize: 16, color: isDark ? '#FFF' : '#000' },
   languageItemTextSelected: { color: '#FF0000', fontWeight: 'bold' }
-});জ
+});
