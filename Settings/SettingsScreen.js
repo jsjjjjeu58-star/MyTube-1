@@ -4,6 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { DeviceEventEmitter } from 'react-native'; 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// Global theme & language
+import { useTheme } from '../ThemeContext';
+import { useLanguage } from '../LanguageContext';
+
 global.appSettings = global.appSettings || {};
 global.appSettings.normalVideo = global.appSettings.normalVideo || 'Auto'; 
 global.shortVideoQuality = global.shortVideoQuality || 'Normal Video Quality';
@@ -24,6 +28,10 @@ export default function SettingsScreen() {
   
   const [selectedCacheLimit, setSelectedCacheLimit] = useState(global.appSettings.shortsCacheLimit);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Theme & Language hooks
+  const { isDarkMode } = useTheme();
+  const { t } = useLanguage();
 
   useEffect(() => {
     const loadSavedSettings = async () => {
@@ -230,8 +238,8 @@ export default function SettingsScreen() {
       {currentView === 'main' && (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
           <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>⚙️ Video Settings</Text>
-            <Text style={styles.headerSubtitle}>আপনার পছন্দমতো কাস্টমাইজ করুন</Text>
+            <Text style={styles.headerTitle}>{t('videoSettings') || '⚙️ Video Settings'}</Text>
+            <Text style={styles.headerSubtitle}>{t('videoSettingsDesc') || 'আপনার পছন্দমতো কাস্টমাইজ করুন'}</Text>
           </View>
 
           <View style={styles.settingsContainer}>

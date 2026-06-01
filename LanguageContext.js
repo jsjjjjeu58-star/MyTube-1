@@ -12,7 +12,23 @@ const translations = {
     playlist: "My Playlist", playlistDesc: "Your curated collections",
     settings: "Settings", settingsDesc: "App preferences & privacy",
     darkMode: "Dark Mode", darkModeDesc: "Switch app theme",
-    language: "Language", languageDesc: "Change app language"
+    language: "Language", languageDesc: "Change app language",
+
+    // Additional strings used across screens
+    subscriptions: "My Subscriptions",
+    unsubscribe: "Unsubscribe",
+    unsubscribeConfirm: "Are you sure you want to unsubscribe from '%s'?",
+    thumbnailQualityControl: "Thumbnail Quality Control",
+    current: "Current",
+    success: "Success",
+
+    videoSettings: "Video Settings",
+    videoSettingsDesc: "Customize your playback preferences",
+    longVideoQuality: "Long Video Quality",
+    shortVideoQuality: "Short Video Quality",
+    downloadLocation: "Download Location",
+    cacheLimit: "Cache Limit",
+    defaultTag: "Default"
   },
   bn: {
     home: "হোম", shorts: "শর্টস", live: "লাইভ", me: "মি", search: "সার্চ...", menu: "মেন্যু",
@@ -22,7 +38,23 @@ const translations = {
     playlist: "প্লেলিস্ট", playlistDesc: "আপনার সংগ্রহ",
     settings: "সেটিংস", settingsDesc: "অ্যাপ প্রিফারেন্স ও প্রাইভেসি",
     darkMode: "ডার্ক মোড", darkModeDesc: "অ্যাপ থیم পরিবর্তন করুন",
-    language: "ভাষা", languageDesc: "অ্যাপের ভাষা পরিবর্তন করুন"
+    language: "ভাষা", languageDesc: "অ্যাপের ভাষা পরিবর্তন করুন",
+
+    // অতিরিক্ত স্ট্রিং
+    subscriptions: "আমার সাবস্ক্রিপশন",
+    unsubscribe: "সাবস্ক্রাইব রদ করুন",
+    unsubscribeConfirm: "আপনি কি '%s' থেকে সাবস্ক্রাইব রদ করতে চান?",
+    thumbnailQualityControl: "থাম্বনেইল কোয়ালিটি কনট্রোল",
+    current: "বর্তমান",
+    success: "সফল",
+
+    videoSettings: "ভিডিও সেটিংস",
+    videoSettingsDesc: "আপনার প্লেব্যাক পছন্দ কাস্টমাইজ করুন",
+    longVideoQuality: "দীর্ঘ ভিডিও কোয়ালিটি",
+    shortVideoQuality: "শর্টস কোয়ালিটি",
+    downloadLocation: "ডাউনলোড লোকেশন",
+    cacheLimit: "ক্যাশ সীমা",
+    defaultTag: "ডিফল্ট"
   }
   // প্রয়োজন হলে বাকি ভাষাগুলো এখানে যোগ করে নেবেন আগের মতো
 };
