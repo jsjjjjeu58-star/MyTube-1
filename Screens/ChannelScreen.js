@@ -6,6 +6,10 @@ import { useNavigation, useRoute, useIsFocused } from '@react-navigation/native'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceEventEmitter } from 'react-native'; 
 
+// Theme & Language
+import { useTheme } from '../ThemeContext';
+import { useLanguage } from '../LanguageContext'; 
+
 const { width } = Dimensions.get('window');
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
@@ -13,6 +17,8 @@ export default function ChannelScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const isFocused = useIsFocused();
+  const { isDarkMode } = useTheme();
+  const { t } = useLanguage();
 
   const { channelData = {}, channelName: paramChannelName, channelAvatar: paramAvatar, channelUrl: paramChannelUrl } = route.params || {};
 
@@ -580,13 +586,13 @@ export default function ChannelScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor="#0F0F0F" barStyle="light-content" />
+    <SafeAreaView style={[styles.container, { backgroundColor: isDarkMode ? '#0F0F0F' : '#F9F9F9' }]}>
+      <StatusBar backgroundColor={isDarkMode ? '#0F0F0F' : '#FFFFFF'} barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerIcon}>
-           <Ionicons name="arrow-back" size={24} color="#FFF" />
+           <Ionicons name="arrow-back" size={24} color={isDarkMode ? '#FFF' : '#000'} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{channelName}</Text>
+        <Text style={[styles.headerTitle, { color: isDarkMode ? '#FFF' : '#000' }]} numberOfLines={1}>{channelName}</Text>
       </View>
 
       <FlatList 

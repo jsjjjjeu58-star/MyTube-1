@@ -4,10 +4,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
+// Theme & Language
+import { useTheme } from '../ThemeContext';
+import { useLanguage } from '../LanguageContext';
+
 const { width, height } = Dimensions.get('window');
 
 export default function PlaylistPage({ navigation }) {
   const [savedPlaylist, setSavedPlaylist] = useState([]); 
+  const { isDarkMode } = useTheme();
+  const { t } = useLanguage();
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -38,7 +44,7 @@ export default function PlaylistPage({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <StatusBar backgroundColor="transparent" barStyle="light-content" translucent={true} />
+      <StatusBar backgroundColor={isDarkMode ? '#0F0F0F' : 'transparent'} barStyle={isDarkMode ? 'light-content' : 'dark-content'} translucent={true} />
 
       {/* হোম স্ক্রিনের মতো হেডার এবং সার্চ বার */}
       <View style={styles.header}>

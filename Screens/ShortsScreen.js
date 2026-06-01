@@ -5,6 +5,10 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useIsFocused, useFocusEffect } from '@react-navigation/native';
 
+// Theme & Language
+import { useTheme } from '../ThemeContext';
+import { useLanguage } from '../LanguageContext';
+
 const UAS = {
   anti: "Mozilla/5.0 (Linux; Android 11; LS5018 Build/RP1A.201005.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/106.0.5249.126 Mobile Safari/537.36",
   low: "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.181 Mobile Safari/537.36",
@@ -15,6 +19,8 @@ const UAS = {
 export default function ShortsScreen({ initialVideoId, route }) {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
+  const { isDarkMode } = useTheme();
+  const { t } = useLanguage();
 
   const [isActive, setIsActive] = useState(true);
   const [isAutoSkipping, setIsAutoSkipping] = useState(false);
@@ -258,7 +264,7 @@ export default function ShortsScreen({ initialVideoId, route }) {
       style={styles.container}
       onTouchStart={() => setShowMuteIcon(false)} // নেটিভ ভিউ এর উপর টাচ করলেও যেন আইকন গায়েব হয়
     >
-      <StatusBar backgroundColor="#0F0F0F" barStyle="light-content" />
+      <StatusBar backgroundColor={isDarkMode ? '#0F0F0F' : '#FFFFFF'} barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
 
       <View style={styles.header}>
         <View style={styles.logoContainer}>
@@ -266,7 +272,7 @@ export default function ShortsScreen({ initialVideoId, route }) {
            <Text style={styles.logoText}>MyTube</Text>
         </View>
         <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
-          <Text style={{ flex: 1, color: '#888', fontSize: 14 }}>সার্চ...</Text>
+          <Text style={{ flex: 1, color: isDarkMode ? '#888' : '#666', fontSize: 14 }}>{t('search') || 'সার্চ...'}</Text>
           <Ionicons name="search" size={18} color="#AAA" />
         </TouchableOpacity>
       </View>

@@ -32,6 +32,8 @@ const { height } = Dimensions.get('window');
 export default function LiveScreen() {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
+  const { isDarkMode } = useTheme();
+  const { t } = useLanguage();
   
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -46,8 +48,9 @@ export default function LiveScreen() {
   useEffect(() => {
     if (isFocused && Platform.OS === 'android') {
       NavigationBar.setVisibilityAsync("visible");
-      NavigationBar.setBackgroundColorAsync("#000000"); // হোম স্ক্রিনের সাথে সামঞ্জস্য রেখে কালো করা হলো
-      NavigationBar.setButtonStyleAsync("light");
+      const bgColor = isDarkMode ? '#000000' : '#ffffff';
+      NavigationBar.setBackgroundColorAsync(bgColor);
+      NavigationBar.setButtonStyleAsync(isDarkMode ? 'light' : 'dark');
     }
   }, [isFocused]);
 

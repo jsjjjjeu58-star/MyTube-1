@@ -13,6 +13,8 @@ const MY_API_SERVER = "http://127.0.0.1:10000";
 
 export default function PlayerScreen({ route, navigation }) {
   const { videoId, videoData = {} } = route?.params || {};
+  const { isDarkMode } = useTheme();
+  const { t } = useLanguage();
 
   const [relatedVideos, setRelatedVideos] = useState([]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);

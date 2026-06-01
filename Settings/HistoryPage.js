@@ -7,6 +7,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export default function HistoryPage() {
   const navigation = useNavigation();
   const isFocused = useIsFocused(); 
+  const { isDarkMode } = useTheme();
+  const { t } = useLanguage();
   
   const [historyData, setHistoryData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -64,12 +66,12 @@ export default function HistoryPage() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: isDarkMode ? '#0F0F0F' : '#F9F9F9' }]}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 10 }}>
-          <Ionicons name="arrow-back" size={24} color="#FFF" />
+          <Ionicons name="arrow-back" size={24} color={isDarkMode ? '#FFF' : '#000'} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Watch History</Text>
+        <Text style={[styles.headerTitle, { color: isDarkMode ? '#FFF' : '#000' }]}>{t('history') || 'Watch History'}</Text>
         
         {historyData.length > 0 && (
           <TouchableOpacity onPress={clearAllHistory} style={{ padding: 10 }}>
