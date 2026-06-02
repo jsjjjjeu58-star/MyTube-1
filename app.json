@@ -4,7 +4,7 @@
     "slug": "bio-digital-truth",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/iconm.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": false,
     "jsEngine": "jsc",
@@ -27,7 +27,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/adaptive-iconm.png",
         "backgroundColor": "#0F0F0F"
       },
       "package": "com.imtiaz.biodigitaltruth",
