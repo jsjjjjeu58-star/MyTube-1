@@ -1,0 +1,135 @@
+{
+  "expo": {
+    "name": "MyTube",
+    "slug": "mytube",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": false,
+    "jsEngine": "hermes",
+    "scheme": "biodigital",
+    "splash": {
+      "image": "./assets/splashm.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FF0000"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.imtiaz.biodigitaltruth",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "audio",
+          "fetch",
+          "processing"
+        ],
+        "NSPhotoLibraryUsageDescription": "The app needs access to your photo library to save downloaded media.",
+        "NSPhotoLibraryAddUsageDescription": "The app needs permission to add photos to your library when saving media.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-iconm.png",
+        "backgroundColor": "#FF0000"
+      },
+      "package": "com.imtiaz.biodigitaltruth",
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "WAKE_LOCK",
+        "RECEIVE_BOOT_COMPLETED",
+        "POST_NOTIFICATIONS",
+        "SYSTEM_ALERT_WINDOW",
+        "READ_MEDIA_VISUAL_USER_SELECTED",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "READ_MEDIA_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "*.youtube.com"
+            },
+            {
+              "scheme": "https",
+              "host": "youtu.be"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "web": {},
+    "plugins": [
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "The app needs access to your photos to save downloaded videos.",
+          "savePhotosPermission": "The app needs permission to save media to your library."
+        }
+      ],
+      "expo-file-system",
+      "expo-screen-orientation",
+      "expo-navigation-bar",
+      "expo-task-manager",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 24,
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "ndkVersion": "27.1.12297006",
+            "cmakeVersion": "3.22.1"
+          }
+        }
+      ],
+      "expo-web-browser",
+      "expo-background-fetch",
+      "expo-secure-store",
+      "expo-audio",
+      "expo-sharing",
+      "expo-sqlite",
+      [
+        "expo-video",
+        {
+          "supportsPictureInPicture": true
+        }
+      ],
+    ],
+    "extra": {
+      "expo-navigation-bar": {},
+      "eas": {
+        "projectId": "845fb4c1-365b-40da-8c66-5d6cc2af8c18"
+      }
+    },
+    "owner": "omarali_2030"
+  }
+}
