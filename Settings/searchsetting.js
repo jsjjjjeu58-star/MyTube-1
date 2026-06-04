@@ -4,6 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// Theme & Language
+import { useTheme } from '../ThemeContext';
+import { useLanguage } from '../LanguageContext';
+
 const { width, height } = Dimensions.get('window');
 const HEADER_HEIGHT = height / 12; 
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -11,6 +15,9 @@ const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537
 export default function SearchSettingScreen({ route }) {
   const navigation = useNavigation();
   const inputRef = useRef(null);
+  const { isDarkMode } = useTheme();
+  const { t } = useLanguage();
+  const styles = getDynamicStyles(isDarkMode);
 
   const [query, setQuery] = useState('');
   const [history, setHistory] = useState([]);
@@ -65,13 +72,13 @@ export default function SearchSettingScreen({ route }) {
   const saveHistory = async (text) => {
     const updatedHistory = [text, ...history.filter(item => item !== text)].slice(0, 15);
     setHistory(updatedHistory);
-    await AsyncStorage.setItem('myTubeSearchHistory', JSON.stringify(updatedHistory));
+    try { await AsyncStorage.setItem('myTubeSearchHistory', JSON.stringify(updatedHistory)); } catch (e) { console.log(e); }
   };
 
   const removeHistoryItem = async (itemToRemove) => {
     const updatedHistory = history.filter(item => item !== itemToRemove);
     setHistory(updatedHistory);
-    await AsyncStorage.setItem('myTubeSearchHistory', JSON.stringify(updatedHistory));
+    try { await AsyncStorage.setItem('myTubeSearchHistory', JSON.stringify(updatedHistory)); } catch (e) { console.log(e); }
   };
 
   // 🎯 [NEW]: লিংক থেকে সরাসরি ভিডিও প্লে করার স্মার্ট হ্যান্ডলার
@@ -331,7 +338,7 @@ export default function SearchSettingScreen({ route }) {
         <View style={styles.shortsShelf}>
           <View style={styles.shelfHeader}>
             <Ionicons name="play-circle" size={22} color="#FF0000" />
-            <Text style={styles.shelfTitle}>Shorts</Text>
+            <Text style={styles.shelfTitle}>{__translate('Shorts')}</Text>
           </View>
           <FlatList 
             horizontal 
@@ -387,25 +394,25 @@ export default function SearchSettingScreen({ route }) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor="#0F0F0F" barStyle="light-content" translucent={true} />
+    <SafeAreaView style={[styles.container, { backgroundColor: isDarkMode ? '#0F0F0F' : '#FFFFFF' }]}>
+      <StatusBar backgroundColor={isDarkMode ? '#0F0F0F' : '#FFFFFF'} barStyle={isDarkMode ? 'light-content' : 'dark-content'} translucent={true} />
 
       <View style={styles.searchHeader}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
-          <Ionicons name="arrow-back" size={24} color="#FFF" />
+          <Ionicons name="arrow-back" size={24} color={isDarkMode ? '#FFF' : '#000'} />
         </TouchableOpacity>
 
         <View style={styles.logoBox}>
           <Ionicons name="logo-youtube" size={22} color="#FF0000" />
-          <Text style={styles.logoText}>MyTube</Text>
+          <Text style={styles.logoText}>{__translate('MyTube')}</Text>
         </View>
 
         <View style={styles.searchBar}>
           <TextInput 
             ref={inputRef} 
             style={styles.input} 
-            placeholder="Search..." 
-            placeholderTextColor="#888" 
+            placeholder={__translate('Search...')} 
+            placeholderTextColor={isDarkMode ? '#888' : '#666'} 
             value={query} 
             onChangeText={handleTextChange} 
             onSubmitEditing={() => handleSearchSubmit(query)} 
@@ -417,7 +424,7 @@ export default function SearchSettingScreen({ route }) {
           />
           {query.length > 0 && (
             <TouchableOpacity onPress={() => { setQuery(''); setShowResults(false); inputRef.current?.focus(); }}>
-              <Ionicons name="close-circle" size={18} color="#AAA" />
+              <Ionicons name="close-circle" size={18} color={isDarkMode ? '#AAA' : '#555'} />
             </TouchableOpacity>
           )}
         </View>
@@ -431,13 +438,13 @@ export default function SearchSettingScreen({ route }) {
             renderItem={({item}) => (
               <View style={styles.historyRowContainer}>
                 <TouchableOpacity style={styles.historyClickableArea} onPress={() => handleSearchSubmit(item)}>
-                  <Ionicons name={query ? "search-outline" : "time-outline"} size={22} color="#AAA" />
+                  <Ionicons name={query ? "search-outline" : "time-outline"} size={22} color={isDarkMode ? '#AAA' : '#555'} />
                   <Text style={styles.historyText}>{item}</Text>
                 </TouchableOpacity>
 
                 {!query && (
                   <TouchableOpacity style={styles.deleteBtn} onPress={() => removeHistoryItem(item)}>
-                    <Ionicons name="close" size={22} color="#FFF" />
+                    <Ionicons name="close" size={22} color={isDarkMode ? '#FFF' : '#000'} />
                   </TouchableOpacity>
                 )}
               </View>
@@ -468,38 +475,40 @@ export default function SearchSettingScreen({ route }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0F0F0F', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
-  searchHeader: { flexDirection: 'row', alignItems: 'center', height: 60, backgroundColor: '#0F0F0F', paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#222' },
-  iconBtn: { padding: 4, marginRight: 8 },
-  logoBox: { flexDirection: 'row', alignItems: 'center', marginRight: 12 },
-  logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
-  searchBar: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#222', borderRadius: 20, height: 38, paddingHorizontal: 15 },
-  input: { flex: 1, color: '#FFF', fontSize: 14, paddingVertical: 0 },
-  historyRowContainer: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 15 },
-  historyClickableArea: { flex: 1, flexDirection: 'row', alignItems: 'center' },
-  historyText: { color: '#FFF', fontSize: 16, marginLeft: 15 },
-  deleteBtn: { padding: 5, paddingLeft: 15 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  videoCard: { marginBottom: 15 },
-  thumbnail: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#111' },
-  duration: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.8)', padding: 4, borderRadius: 4 },
-  durationText: { color: '#FFF', fontSize: 12 },
-  videoInfo: { flexDirection: 'row', padding: 12 },
-  channelAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 12, backgroundColor: '#333' },
-  textContainer: { flex: 1 },
-  videoTitle: { color: '#FFF', fontSize: 14, fontWeight: '500' },
-  videoMeta: { color: '#AAA', fontSize: 12, marginTop: 4 },
-  shortsShelf: { paddingVertical: 15, borderBottomWidth: 4, borderBottomColor: '#222' },
-  shelfHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, marginBottom: 12 },
-  shelfTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginLeft: 8 },
-  shortCard: { width: Dimensions.get('window').width * 0.4, height: Dimensions.get('window').width * 0.72, marginRight: 12, borderRadius: 12, overflow: 'hidden', marginLeft: 12, backgroundColor: '#222' },
-  shortThumb: { width: '100%', height: '100%' },
-  shortOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 8, backgroundColor: 'rgba(0,0,0,0.6)' },
-  shortTitle: { color: '#FFF', fontSize: 13, fontWeight: 'bold', marginBottom: 2 },
-  shortViews: { color: '#CCC', fontSize: 11 },
-  channelRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#222' },
-  channelBigAvatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#333' },
-  channelTitleMain: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
-  channelMetaMain: { color: '#AAA', fontSize: 12 }
-});
+function getDynamicStyles(isDark) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: isDark ? '#0F0F0F' : '#FFFFFF', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
+    searchHeader: { flexDirection: 'row', alignItems: 'center', height: 60, backgroundColor: isDark ? '#0F0F0F' : '#F8F8F8', paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: isDark ? '#222' : '#e6e6e6' },
+    iconBtn: { padding: 4, marginRight: 8 },
+    logoBox: { flexDirection: 'row', alignItems: 'center', marginRight: 12 },
+    logoText: { color: isDark ? '#FFF' : '#000', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
+    searchBar: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? '#222' : '#eee', borderRadius: 20, height: 38, paddingHorizontal: 15 },
+    input: { flex: 1, color: isDark ? '#FFF' : '#000', fontSize: 14, paddingVertical: 0 },
+    historyRowContainer: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 15 },
+    historyClickableArea: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+    historyText: { color: isDark ? '#FFF' : '#000', fontSize: 16, marginLeft: 15 },
+    deleteBtn: { padding: 5, paddingLeft: 15 },
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    videoCard: { marginBottom: 15 },
+    thumbnail: { width: '100%', aspectRatio: 16 / 9, backgroundColor: isDark ? '#111' : '#ddd' },
+    duration: { position: 'absolute', bottom: 8, right: 8, backgroundColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.08)', padding: 4, borderRadius: 4 },
+    durationText: { color: isDark ? '#FFF' : '#000', fontSize: 12 },
+    videoInfo: { flexDirection: 'row', padding: 12 },
+    channelAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 12, backgroundColor: isDark ? '#333' : '#ccc' },
+    textContainer: { flex: 1 },
+    videoTitle: { color: isDark ? '#FFF' : '#000', fontSize: 14, fontWeight: '500' },
+    videoMeta: { color: isDark ? '#AAA' : '#666', fontSize: 12, marginTop: 4 },
+    shortsShelf: { paddingVertical: 15, borderBottomWidth: 4, borderBottomColor: isDark ? '#222' : '#e6e6e6' },
+    shelfHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, marginBottom: 12 },
+    shelfTitle: { color: isDark ? '#FFF' : '#000', fontSize: 18, fontWeight: 'bold', marginLeft: 8 },
+    shortCard: { width: Dimensions.get('window').width * 0.4, height: Dimensions.get('window').width * 0.72, marginRight: 12, borderRadius: 12, overflow: 'hidden', marginLeft: 12, backgroundColor: isDark ? '#222' : '#fff' },
+    shortThumb: { width: '100%', height: '100%' },
+    shortOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 8, backgroundColor: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.08)' },
+    shortTitle: { color: isDark ? '#FFF' : '#000', fontSize: 13, fontWeight: 'bold', marginBottom: 2 },
+    shortViews: { color: isDark ? '#CCC' : '#666', fontSize: 11 },
+    channelRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: isDark ? '#222' : '#e6e6e6' },
+    channelBigAvatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: isDark ? '#333' : '#ccc' },
+    channelTitleMain: { color: isDark ? '#FFF' : '#000', fontSize: 16, fontWeight: 'bold' },
+    channelMetaMain: { color: isDark ? '#AAA' : '#666', fontSize: 12 }
+  });
+}
