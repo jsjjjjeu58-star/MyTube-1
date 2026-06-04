@@ -4,10 +4,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
+// Theme & Language
+import { useTheme } from '../ThemeContext';
+import { useLanguage } from '../LanguageContext';
+
 const { width, height } = Dimensions.get('window');
 
 export default function PlaylistPage({ navigation }) {
   const [savedPlaylist, setSavedPlaylist] = useState([]); 
+  const { isDarkMode } = useTheme();
+  const { t } = useLanguage();
+  const styles = getDynamicStyles(isDarkMode);
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -38,17 +45,17 @@ export default function PlaylistPage({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <StatusBar backgroundColor="transparent" barStyle="light-content" translucent={true} />
+      <StatusBar backgroundColor={isDarkMode ? '#0F0F0F' : 'transparent'} barStyle={isDarkMode ? 'light-content' : 'dark-content'} translucent={true} />
 
       {/* হোম স্ক্রিনের মতো হেডার এবং সার্চ বার */}
       <View style={styles.header}>
         <View style={styles.logoContainer}>
            <Ionicons name="logo-youtube" size={28} color="#FF0000" />
-           <Text style={styles.logoText}>MyTube</Text>
+           <Text style={styles.logoText}>{__translate('MyTube')}</Text>
         </View>
         <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
-          <Text style={{ flex: 1, color: '#888', fontSize: 14 }}>সার্চ...</Text>
-          <Ionicons name="search" size={18} color="#AAA" />
+          <Text style={styles.searchPlaceholder}>{__translate('সার্চ...')}</Text>
+          <Ionicons name="search" size={18} color={isDarkMode ? '#AAA' : '#555'} />
         </TouchableOpacity>
       </View>
 
@@ -57,7 +64,7 @@ export default function PlaylistPage({ navigation }) {
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#FFF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Saved Playlist</Text>
+        <Text style={styles.headerTitle}>{__translate('My Saved Playlist')}</Text>
         <Text style={styles.videoCount}>{savedPlaylist.length} Videos</Text>
       </View>
 
@@ -88,8 +95,8 @@ export default function PlaylistPage({ navigation }) {
         ListEmptyComponent={() => (
             <View style={styles.emptyContainer}>
                 <Ionicons name="folder-open-outline" size={70} color="#333" />
-                <Text style={styles.emptyTitle}>প্লেলিস্ট একদম ফাঁকা!</Text>
-                <Text style={styles.emptySubtitle}>ভিডিও চলাকালীন সেটিংস থেকে "Save to Playlist" এ ক্লিক করে ভিডিও সেভ করুন।</Text>
+                <Text style={styles.emptyTitle}>{__translate('প্লেলিস্ট একদম ফাঁকা!')}</Text>
+                <Text style={styles.emptySubtitle}>{__translate('ভিডিও চলাকালীন সেটিংস থেকে "Save to Playlist" এ ক্লিক করে ভিডিও সেভ করুন।')}</Text>
             </View>
         )}
       />
@@ -97,10 +104,10 @@ export default function PlaylistPage({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const getDynamicStyles = (isDark) => ({
   container: { 
     flex: 1, 
-    backgroundColor: '#000000', 
+    backgroundColor: isDark ? '#000000' : '#FFFFFF', 
     paddingTop: height / 32,    
   },
   
@@ -110,42 +117,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, 
     paddingVertical: 10, 
     borderBottomWidth: 1, 
-    borderBottomColor: '#222', 
+    borderBottomColor: isDark ? '#222' : '#e6e6e6', 
     width: '100%', 
-    backgroundColor: '#0F0F0F' 
+    backgroundColor: isDark ? '#0F0F0F' : '#F8F8F8' 
   },
   logoContainer: { flexDirection: 'row', alignItems: 'center', width: 105 },
-  logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
-  searchBar: { flex: 1, flexDirection: 'row', backgroundColor: '#222', borderRadius: 20, marginHorizontal: 8, paddingHorizontal: 12, alignItems: 'center', height: 38 },
+  logoText: { color: isDark ? '#FFF' : '#111', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
+  searchBar: { flex: 1, flexDirection: 'row', backgroundColor: isDark ? '#222' : '#eee', borderRadius: 20, marginHorizontal: 8, paddingHorizontal: 12, alignItems: 'center', height: 38 },
+  searchPlaceholder: { flex: 1, color: isDark ? '#888' : '#666', fontSize: 14 },
 
   playlistTitleBar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 15,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: isDark ? '#1A1A1A' : '#FFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomColor: isDark ? '#333' : '#e6e6e6',
   },
   backBtn: { marginRight: 15 },
-  headerTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', flex: 1 },
-  videoCount: { color: '#AAA', fontSize: 13, fontWeight: 'bold' },
+  headerTitle: { color: isDark ? '#FFF' : '#111', fontSize: 18, fontWeight: 'bold', flex: 1 },
+  videoCount: { color: isDark ? '#AAA' : '#555', fontSize: 13, fontWeight: 'bold' },
 
   recVideoCard: { 
     flexDirection: 'row', 
     padding: 12, 
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#1A1A1A'
+    borderBottomColor: isDark ? '#1A1A1A' : '#eee'
   },
-  thumbnailImage: { width: 140, height: 80, borderRadius: 8, backgroundColor: '#222' },
+  thumbnailImage: { width: 140, height: 80, borderRadius: 8, backgroundColor: isDark ? '#222' : '#ddd' },
   videoInfo: { flex: 1, marginLeft: 12 },
-  videoTitle: { color: '#FFF', fontSize: 15, lineHeight: 20, fontWeight: '500' },
-  videoMeta: { color: '#AAA', fontSize: 12, marginTop: 6 },
+  videoTitle: { color: isDark ? '#FFF' : '#111', fontSize: 15, lineHeight: 20, fontWeight: '500' },
+  videoMeta: { color: isDark ? '#AAA' : '#666', fontSize: 12, marginTop: 6 },
   addedDateText: { color: '#4CAF50', fontSize: 11, marginTop: 4, fontWeight: '500' }, 
   deleteBtn: { padding: 10 },
 
   emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 100, paddingHorizontal: 40 },
-  emptyTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginTop: 15 },
-  emptySubtitle: { color: '#888', fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
+  emptyTitle: { color: isDark ? '#FFF' : '#111', fontSize: 18, fontWeight: 'bold', marginTop: 15 },
+  emptySubtitle: { color: isDark ? '#888' : '#666', fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
 });
