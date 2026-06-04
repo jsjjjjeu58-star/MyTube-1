@@ -4,6 +4,10 @@ import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as NavigationBar from 'expo-navigation-bar';
 
+// Theme & Language
+import { useTheme } from '../ThemeContext';
+import { useLanguage } from '../LanguageContext';
+
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 const LIVE_QUERIES = [
@@ -32,7 +36,12 @@ const { height } = Dimensions.get('window');
 export default function LiveScreen() {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
+  const { isDarkMode } = useTheme();
+  const { t } = useLanguage();
   
+  // dynamic styles
+  const styles = getDynamicStyles(isDarkMode);
+
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,10 +55,11 @@ export default function LiveScreen() {
   useEffect(() => {
     if (isFocused && Platform.OS === 'android') {
       NavigationBar.setVisibilityAsync("visible");
-      NavigationBar.setBackgroundColorAsync("#000000"); // হোম স্ক্রিনের সাথে সামঞ্জস্য রেখে কালো করা হলো
-      NavigationBar.setButtonStyleAsync("light");
+      const bgColor = isDarkMode ? '#000000' : '#ffffff';
+      NavigationBar.setBackgroundColorAsync(bgColor);
+      NavigationBar.setButtonStyleAsync(isDarkMode ? 'light' : 'dark');
     }
-  }, [isFocused]);
+  }, [isFocused, isDarkMode]);
 
   useEffect(() => {
     const randomQuery = LIVE_QUERIES[Math.floor(Math.random() * LIVE_QUERIES.length)];
@@ -227,7 +237,7 @@ export default function LiveScreen() {
       <TouchableOpacity activeOpacity={0.9} onPress={() => navigation.navigate('Player', { videoId: item.id, videoData: item })}>
         <View style={styles.thumbnailContainer}>
           <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
-          <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>LIVE</Text></View>
+          <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>{__translate('LIVE')}</Text></View>
         </View>
       </TouchableOpacity>
 
@@ -256,11 +266,11 @@ export default function LiveScreen() {
       <View style={styles.header}>
         <View style={styles.logoContainer}>
             <Ionicons name="logo-youtube" size={28} color="#FF0000" />
-            <Text style={styles.logoText}>MyTube</Text>
+            <Text style={styles.logoText}>{__translate('MyTube')}</Text>
         </View>
         <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
-          <Text style={{ flex: 1, color: '#888', fontSize: 14 }}>সার্চ লাইভ...</Text>
-          <Ionicons name="search" size={18} color="#AAA" />
+          <Text style={{ flex: 1, color: '#888', fontSize: 14 }}>{__translate('সার্চ লাইভ...')}</Text>
+          <Ionicons name="search" size={18} color={isDarkMode ? '#AAA' : '#555'} />
         </TouchableOpacity>
       </View>
 
@@ -306,33 +316,34 @@ export default function LiveScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#0F0F0F',
-    // আপনার নির্দেশনা অনুযায়ী: স্ক্রিনের ৩২ ভাগের ১ ভাগ ওপরের টাইমের জন্য বরাদ্দ করা হলো
-    paddingTop: height / 70 
-  },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222', width: '100%', backgroundColor: '#0F0F0F' },
-  logoContainer: { flexDirection: 'row', alignItems: 'center', width: 105 },
-  logoText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
-  searchBar: { flex: 1, flexDirection: 'row', backgroundColor: '#222', borderRadius: 20, marginHorizontal: 8, paddingHorizontal: 12, alignItems: 'center', height: 38 },
-  
-  // Top Channels Styles
-  topChannelsContainer: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#222', marginBottom: 10 },
-  topChannelItem: { alignItems: 'center', marginHorizontal: 8, width: 70 },
-  topChannelLogo: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#333', borderWidth: 1, borderColor: '#444', resizeMode: 'cover' },
-  topChannelName: { color: '#FFF', fontSize: 11, marginTop: 6, textAlign: 'center' },
-  
-  // Video Card Styles
-  videoCard: { marginBottom: 15 },
-  thumbnailContainer: { position: 'relative' },
-  thumbnail: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#111' },
-  liveBadge: { position: 'absolute', bottom: 8, right: 8, backgroundColor: '#FF0000', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
-  liveBadgeText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
-  videoInfo: { flexDirection: 'row', padding: 12, alignItems: 'flex-start' },
-  channelAvatar: { width: 38, height: 38, borderRadius: 19, marginRight: 12, backgroundColor: '#333', resizeMode: 'cover' },
-  textContainer: { flex: 1, paddingRight: 10 },
-  title: { color: '#FFF', fontSize: 14, fontWeight: '500', marginBottom: 4 },
-  meta: { color: '#AAA', fontSize: 12 }
-});
+function getDynamicStyles(isDark) {
+  return StyleSheet.create({
+    container: { 
+      flex: 1, 
+      backgroundColor: isDark ? '#0F0F0F' : '#F9F9F9',
+      paddingTop: height / 70 
+    },
+    header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: isDark ? '#222' : '#EAEAEA', width: '100%', backgroundColor: isDark ? '#0F0F0F' : '#FFFFFF' },
+    logoContainer: { flexDirection: 'row', alignItems: 'center', width: 105 },
+    logoText: { color: isDark ? '#FFF' : '#000', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
+    searchBar: { flex: 1, flexDirection: 'row', backgroundColor: isDark ? '#222' : '#F0F0F0', borderRadius: 20, marginHorizontal: 8, paddingHorizontal: 12, alignItems: 'center', height: 38 },
+    
+    // Top Channels Styles
+    topChannelsContainer: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: isDark ? '#222' : '#EAEAEA', marginBottom: 10 },
+    topChannelItem: { alignItems: 'center', marginHorizontal: 8, width: 70 },
+    topChannelLogo: { width: 56, height: 56, borderRadius: 28, backgroundColor: isDark ? '#333' : '#EEE', borderWidth: 1, borderColor: isDark ? '#444' : '#DDD', resizeMode: 'cover' },
+    topChannelName: { color: isDark ? '#FFF' : '#000', fontSize: 11, marginTop: 6, textAlign: 'center' },
+    
+    // Video Card Styles
+    videoCard: { marginBottom: 15 },
+    thumbnailContainer: { position: 'relative' },
+    thumbnail: { width: '100%', aspectRatio: 16 / 9, backgroundColor: isDark ? '#111' : '#EAEAEA' },
+    liveBadge: { position: 'absolute', bottom: 8, right: 8, backgroundColor: '#FF0000', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
+    liveBadgeText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
+    videoInfo: { flexDirection: 'row', padding: 12, alignItems: 'flex-start' },
+    channelAvatar: { width: 38, height: 38, borderRadius: 19, marginRight: 12, backgroundColor: isDark ? '#333' : '#EEE', resizeMode: 'cover' },
+    textContainer: { flex: 1, paddingRight: 10 },
+    title: { color: isDark ? '#FFF' : '#000', fontSize: 14, fontWeight: '500', marginBottom: 4 },
+    meta: { color: isDark ? '#AAA' : '#666', fontSize: 12 }
+  });
+}
