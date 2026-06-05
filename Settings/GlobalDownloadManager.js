@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, StatusBar, Alert, Animated, PanResponder, Dimensions, Modal, DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useNavigationState } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 
 // Theme & Language
 import { useTheme } from '../ThemeContext';
@@ -43,7 +43,9 @@ export default function GlobalDownloadManager() {
     // Badge States
     const [activeCount, setActiveCount] = useState(0);
     const [isBadgeVisible, setIsBadgeVisible] = useState(false);
-    const dismissedCountRef = useRef(0); 
+    
+    // 🎯 [FIX] কাউন্টের বদলে ইউনিক ID ট্র্যাক করার জন্য Set ব্যবহার করা হলো
+    const activeIdsRef = useRef(new Set()); 
 
     const pan = useRef(new Animated.ValueXY({ x: 20, y: SCREEN_HEIGHT - 150 })).current;
 
@@ -79,20 +81,41 @@ export default function GlobalDownloadManager() {
                 const data = await res.json();
                 const active = data.activeDownloads || {};
 
-                const count = Object.keys(active).filter(k => active[k].status !== 'error' && active[k].status !== 'completed').length;
+                // শুধুমাত্র চলমান ডাউনলোডের আইডিগুলো ফিল্টার করা
+                const currentActiveIds = Object.keys(active).filter(k => active[k].status !== 'error' && active[k].status !== 'completed');
+                const count = currentActiveIds.length;
                 setActiveCount(count);
 
+                // 🎯 [NEW LOGIC] নতুন আইডি খোঁজার লজিক
+                let hasNewId = false;
+                const currentActiveSet = new Set(currentActiveIds);
+
+                currentActiveIds.forEach(id => {
+                    if (!activeIdsRef.current.has(id)) {
+                        hasNewId = true; // নতুন ডাউনলোড পাওয়া গেছে
+                        activeIdsRef.current.add(id);
+                    }
+                });
+
+                // যে ডাউনলোডগুলো শেষ হয়ে গেছে বা মুছে ফেলা হয়েছে, সেগুলো Ref থেকে রিমুভ করা
+                activeIdsRef.current.forEach(id => {
+                    if (!currentActiveSet.has(id)) {
+                        activeIdsRef.current.delete(id);
+                    }
+                });
+
+                // ব্যাজ ভাসানোর লজিক
                 if (!isScreenVisible) {
-                    if (count > dismissedCountRef.current) {
-                        setIsBadgeVisible(true);
-                        dismissedCountRef.current = count; 
-                        Animated.spring(pan, { toValue: { x: 20, y: SCREEN_HEIGHT - 150 }, useNativeDriver: false }).start();
-                    } else if (count === 0) {
+                    if (count === 0) {
                         setIsBadgeVisible(false);
-                        dismissedCountRef.current = 0;
+                    } else if (hasNewId) {
+                        // শুধুমাত্র নতুন আইডি এলেই এটি আবার ভেসে উঠবে
+                        setIsBadgeVisible(true);
+                        Animated.spring(pan, { toValue: { x: 20, y: SCREEN_HEIGHT - 150 }, useNativeDriver: false }).start();
                     }
                 }
 
+                // লিস্ট আপডেট লজিক
                 setDownloads(prevDownloads => {
                     let needsSave = false;
                     let updatedList = [...prevDownloads];
@@ -147,7 +170,7 @@ export default function GlobalDownloadManager() {
             onPanResponderRelease: (_, gestureState) => {
                 pan.flattenOffset();
                 if (pan.x._value < -20 || pan.x._value > SCREEN_WIDTH - BADGE_SIZE + 20 || pan.y._value < -20 || pan.y._value > SCREEN_HEIGHT - BADGE_SIZE + 20 || Math.abs(gestureState.vx) > 1.5 || Math.abs(gestureState.vy) > 1.5) {
-                    setIsBadgeVisible(false); dismissedCountRef.current = activeCount; 
+                    setIsBadgeVisible(false); // আইকন মুছে ফেলা হলো (কিন্তু আইডিগুলো সেভ থাকায় নতুন ডাউনলোড দিলে আবার আসবে)
                 } else {
                     let safeX = pan.x._value < 0 ? 10 : (pan.x._value > SCREEN_WIDTH - BADGE_SIZE ? SCREEN_WIDTH - BADGE_SIZE - 10 : pan.x._value);
                     let safeY = pan.y._value < 50 ? 50 : (pan.y._value > SCREEN_HEIGHT - BADGE_SIZE - 50 ? SCREEN_HEIGHT - BADGE_SIZE - 50 : pan.y._value);
@@ -274,7 +297,6 @@ export default function GlobalDownloadManager() {
                             activeDownloads.length === 0 && completedDownloads.length === 0 && (
                                 <View style={styles.empty}>
                                     <Ionicons name="download-outline" size={80} color="#333" />
-                                    {/* 🎯 এখানে __translate পরিবর্তন করে t দেওয়া হয়েছে */}
                                     <Text style={styles.emptyText}>{t('কোনো ডাউনলোড পাওয়া যায়নি')}</Text>
                                 </View>
                             )
