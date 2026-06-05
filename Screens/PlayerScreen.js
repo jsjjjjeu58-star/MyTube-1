@@ -17,7 +17,7 @@ const MY_API_SERVER = "http://127.0.0.1:10000";
 export default function PlayerScreen({ route, navigation }) {
   const { videoId, videoData = {} } = route?.params || {};
   const { isDarkMode } = useTheme();
-  const { t } = useLanguage(); // 🎯 t ইমপোর্ট করা আছে
+  const { t } = useLanguage(); 
   const styles = getDynamicStyles(isDarkMode);
 
   const [relatedVideos, setRelatedVideos] = useState([]);
@@ -190,13 +190,17 @@ export default function PlayerScreen({ route, navigation }) {
       setShowCommentModal(false); navigation.navigate('Channel', { channelName, channelAvatar, channelId });
   };
 
+  // 🎯 🚀 [FIX]: থাম্বনেইল এবং ভিডিও আইডি সরাসরি পাঠানো হচ্ছে
   const handleDownloadExecute = async (item) => {
     try {
       setShowDownloadModal(false); setIsDownloading(true); setTimeout(() => setIsDownloading(false), 2000);
       const downloadId = Date.now().toString(); 
       const safeTitle = (videoData.title || 'video').replace(/[<>:"\/\\|?*]+/g, '').trim();
       const targetUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      const dlApiUrl = `${MY_API_SERVER}/api/aria-download?id=${downloadId}&url=${encodeURIComponent(targetUrl)}&quality=${encodeURIComponent(item.quality)}&type=${downloadType}&title=${encodeURIComponent(safeTitle)}`;
+      const thumbUrl = videoData.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+      
+      const dlApiUrl = `${MY_API_SERVER}/api/aria-download?id=${downloadId}&videoId=${videoId}&url=${encodeURIComponent(targetUrl)}&quality=${encodeURIComponent(item.quality)}&type=${downloadType}&title=${encodeURIComponent(safeTitle)}&thumbnail=${encodeURIComponent(thumbUrl)}`;
+      
       await fetch(dlApiUrl);
     } catch (error) { Alert.alert("Error", "Could not connect to server."); }
   };
