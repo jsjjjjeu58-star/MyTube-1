@@ -250,7 +250,7 @@ export default function HomeScreen({ route }) {
                    />
                    <MeMenuCard 
                       icon="download" iconBg="rgba(76, 175, 80, 0.12)" iconColor="#4CAF50" 
-                      title={t('download')} subtitle={t('downloadDesc')} onPress={() => navigation.navigate('Downloads')} 
+                      title={t('download')} subtitle={t('downloadDesc')} onPress={() => navigation.navigate('GlobalDownloadManager')} 
                    />
                    <MeMenuCard 
                       icon="logo-youtube" iconBg="rgba(244, 67, 54, 0.12)" iconColor="#F44336" 
