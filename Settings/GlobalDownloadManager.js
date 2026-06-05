@@ -11,7 +11,6 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BADGE_SIZE = 60;
 const MY_API_SERVER = "http://127.0.0.1:10000";
 
-// 🎯 সাদা লাইনের স্লাইডিং অ্যানিমেশন (Shimmer)
 const ShimmerOverlay = () => {
     const translateX = useRef(new Animated.Value(-SCREEN_WIDTH)).current;
 
@@ -127,9 +126,9 @@ export default function GlobalDownloadManager() {
                             } else if (activeItem.status === 'error' && !item.isError) {
                                 item.isError = true; needsSave = true;
                             } else {
-                                // 🎯 ફাস্ট প্রোগ্রেস লজিক (১০০% হওয়ার পর ১৫ সেকেন্ড)
+                                // 🎯 🚀 [FIX] অডিও হলে ফেক প্রসেসিং স্কিপ করবে
                                 let progressVal = parseFloat(activeItem.progress) || 0;
-                                if (progressVal >= 99.9 && activeItem.status !== 'completed') {
+                                if (progressVal >= 99.9 && activeItem.status !== 'completed' && activeItem.type !== 'audio') {
                                     if (!item.processingStartTime) { item.processingStartTime = Date.now(); needsSave = true; }
                                     let elapsed = Date.now() - item.processingStartTime;
                                     item.fakeProgress = Math.min((elapsed / 15000) * 100, 99.9).toFixed(1);
@@ -186,6 +185,15 @@ export default function GlobalDownloadManager() {
         ]);
     };
 
+    const handlePlayVideo = (item) => {
+        if (!item.isCompleted) return;
+        setIsScreenVisible(false); 
+        navigation.navigate('Player', {
+            videoId: item.videoId,
+            videoData: { id: item.videoId, title: item.title, channel: 'Downloaded File', thumbnail: item.thumbnail, localUri: item.localUri, type: item.type }
+        });
+    };
+
     const activeDownloads = downloads.filter(d => !d.isCompleted && !d.isError);
     const completedDownloads = downloads.filter(d => d.isCompleted);
 
@@ -221,7 +229,7 @@ export default function GlobalDownloadManager() {
                                     
                                     {activeDownloads.map(item => {
                                         let progressVal = parseFloat(item.progress) || 0;
-                                        let isProcessing = progressVal >= 99.9 && !item.isCompleted; 
+                                        let isProcessing = progressVal >= 99.9 && !item.isCompleted && item.type !== 'audio'; 
                                         let isPreparing = progressVal === 0 && (item.speed === '0 KB/s' || !item.speed); 
 
                                         let displayProgress = isProcessing ? (item.fakeProgress || 0) : progressVal;
@@ -237,10 +245,9 @@ export default function GlobalDownloadManager() {
 
                                         return (
                                             <View key={item.id} style={[styles.activeCard, { overflow: 'hidden' }]}>
-                                                {/* 🎯 Shimmer Animation */}
+                                                
                                                 {isPreparing && <ShimmerOverlay />}
 
-                                                {/* 🎯 Thumbnail Render */}
                                                 {item.type === 'audio' ? (
                                                     <View style={styles.splitThumbContainer}>
                                                         <Image source={{ uri: item.thumbnail }} style={styles.halfThumb} />
@@ -270,7 +277,7 @@ export default function GlobalDownloadManager() {
                         }
                         renderItem={({ item }) => (
                             <View style={styles.card}>
-                                <TouchableOpacity style={styles.cardMain} activeOpacity={0.8}>
+                                <TouchableOpacity style={styles.cardMain} activeOpacity={0.8} onPress={() => handlePlayVideo(item)}>
                                     {item.type === 'audio' ? (
                                         <View style={styles.splitThumbContainer}><Image source={{ uri: item.thumbnail }} style={styles.halfThumb} /><View style={styles.halfIcon}><Ionicons name="musical-notes" size={30} color="#00BFA5" /></View></View>
                                     ) : (
@@ -281,7 +288,7 @@ export default function GlobalDownloadManager() {
                                         <Text style={styles.meta}>{item.quality} • {item.type?.toUpperCase()} • {timeAgoBn(item.date)}</Text>
                                     </View>
                                 </TouchableOpacity>
-                                <TouchableOpacity style={styles.deleteBtn} onPress={() => {}}><Ionicons name="trash-outline" size={22} color="#FF4444" /></TouchableOpacity>
+                                <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteDownload(item.id)}><Ionicons name="trash-outline" size={22} color="#FF4444" /></TouchableOpacity>
                             </View>
                         )}
                         ListEmptyComponent={<View style={styles.empty}><Ionicons name="download-outline" size={80} color="#333" /><Text style={styles.emptyText}>{t('কোনো ডাউনলোড পাওয়া যায়নি')}</Text></View>}
