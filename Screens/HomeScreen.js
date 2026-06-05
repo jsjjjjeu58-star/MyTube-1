@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, StatusBar, ActivityIndicator, Platform, Dimensions, RefreshControl, ScrollView, Switch, BackHandler } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, StatusBar, ActivityIndicator, Platform, Dimensions, RefreshControl, ScrollView, Switch, BackHandler, DeviceEventEmitter } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -204,7 +204,6 @@ export default function HomeScreen({ route }) {
         <View style={styles.header}>
           <View style={styles.logoContainer}>
              <Ionicons name="logo-youtube" size={28} color="#FF0000" />
-             {/* 🎯 এখানে __translate পরিবর্তন করে t দেওয়া হয়েছে */}
              <Text style={styles.logoText}>{t('MyTube')}</Text>
           </View>
           <TouchableOpacity style={styles.searchBar} activeOpacity={0.8} onPress={() => navigation.navigate('searchsettings')}>
@@ -251,7 +250,8 @@ export default function HomeScreen({ route }) {
                    />
                    <MeMenuCard 
                       icon="download" iconBg="rgba(76, 175, 80, 0.12)" iconColor="#4CAF50" 
-                      title={t('download')} subtitle={t('downloadDesc')} onPress={() => navigation.navigate('Downloads')} 
+                      title={t('download')} subtitle={t('downloadDesc')} 
+                      onPress={() => DeviceEventEmitter.emit('openDownloadScreen')} 
                    />
                    <MeMenuCard 
                       icon="logo-youtube" iconBg="rgba(244, 67, 54, 0.12)" iconColor="#F44336" 
