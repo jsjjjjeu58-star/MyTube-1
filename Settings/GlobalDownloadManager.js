@@ -4,7 +4,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
-// Theme & Language
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 
@@ -12,21 +11,38 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BADGE_SIZE = 60;
 const MY_API_SERVER = "http://127.0.0.1:10000";
 
+// 🎯 সাদা লাইনের স্লাইডিং অ্যানিমেশন (Shimmer)
+const ShimmerOverlay = () => {
+    const translateX = useRef(new Animated.Value(-SCREEN_WIDTH)).current;
+
+    useEffect(() => {
+        Animated.loop(
+            Animated.timing(translateX, {
+                toValue: SCREEN_WIDTH,
+                duration: 1200,
+                useNativeDriver: true,
+            })
+        ).start();
+    }, []);
+
+    return (
+        <Animated.View
+            style={[
+                StyleSheet.absoluteFill,
+                { backgroundColor: 'rgba(255, 255, 255, 0.15)', width: '40%', transform: [{ translateX }], zIndex: 10 }
+            ]}
+        />
+    );
+};
+
 const timeAgoBn = (timestamp) => {
   if (!timestamp) return "";
-  const now = Date.now();
-  const past = new Date(timestamp).getTime();
-  if (isNaN(past)) return timestamp; 
-
-  const diffMs = now - past;
-  const diffMins = Math.floor(diffMs / 60000);
-
+  const diffMins = Math.floor((Date.now() - new Date(timestamp).getTime()) / 60000);
   if (diffMins < 1) return "এইমাত্র";
   if (diffMins < 60) return `${diffMins} মিনিট পূর্বে`;
   const diffHours = Math.floor(diffMins / 60);
   if (diffHours < 24) return `${diffHours} ঘন্টা পূর্বে`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays} দিন পূর্বে`;
+  return `${Math.floor(diffHours / 24)} দিন পূর্বে`;
 };
 
 export default function GlobalDownloadManager() {
@@ -34,43 +50,25 @@ export default function GlobalDownloadManager() {
     const { isDarkMode } = useTheme();
     const { t } = useLanguage();
 
-    // =====================================
-    // State Management
-    // =====================================
     const [downloads, setDownloads] = useState([]);
     const [isScreenVisible, setIsScreenVisible] = useState(false); 
-    
-    // Badge States
     const [activeCount, setActiveCount] = useState(0);
     const [isBadgeVisible, setIsBadgeVisible] = useState(false);
-    
-    // 🎯 [FIX] কাউন্টের বদলে ইউনিক ID ট্র্যাক করার জন্য Set ব্যবহার করা হলো
     const activeIdsRef = useRef(new Set()); 
-
     const pan = useRef(new Animated.ValueXY({ x: 20, y: SCREEN_HEIGHT - 150 })).current;
 
-    // =====================================
-    // Data Loading & Syncing
-    // =====================================
     const loadDownloads = async () => {
         try {
             const data = await AsyncStorage.getItem('recorded_downloads');
-            if (data) {
-                let parsed = JSON.parse(data);
-                parsed = parsed.filter(item => item && item.id && item.title);
-                setDownloads(parsed);
-            }
-        } catch (e) { console.error(e); }
+            if (data) setDownloads(JSON.parse(data).filter(item => item && item.id));
+        } catch (e) {}
     };
 
     useEffect(() => {
         loadDownloads();
-
         const openEvent = DeviceEventEmitter.addListener('openDownloadScreen', () => {
-            setIsScreenVisible(true);
-            loadDownloads();
+            setIsScreenVisible(true); loadDownloads();
         });
-
         return () => openEvent.remove();
     }, []);
 
@@ -81,41 +79,27 @@ export default function GlobalDownloadManager() {
                 const data = await res.json();
                 const active = data.activeDownloads || {};
 
-                // শুধুমাত্র চলমান ডাউনলোডের আইডিগুলো ফিল্টার করা
                 const currentActiveIds = Object.keys(active).filter(k => active[k].status !== 'error' && active[k].status !== 'completed');
-                const count = currentActiveIds.length;
-                setActiveCount(count);
+                setActiveCount(currentActiveIds.length);
 
-                // 🎯 [NEW LOGIC] নতুন আইডি খোঁজার লজিক
                 let hasNewId = false;
                 const currentActiveSet = new Set(currentActiveIds);
 
                 currentActiveIds.forEach(id => {
-                    if (!activeIdsRef.current.has(id)) {
-                        hasNewId = true; // নতুন ডাউনলোড পাওয়া গেছে
-                        activeIdsRef.current.add(id);
-                    }
+                    if (!activeIdsRef.current.has(id)) { hasNewId = true; activeIdsRef.current.add(id); }
                 });
-
-                // যে ডাউনলোডগুলো শেষ হয়ে গেছে বা মুছে ফেলা হয়েছে, সেগুলো Ref থেকে রিমুভ করা
                 activeIdsRef.current.forEach(id => {
-                    if (!currentActiveSet.has(id)) {
-                        activeIdsRef.current.delete(id);
-                    }
+                    if (!currentActiveSet.has(id)) activeIdsRef.current.delete(id);
                 });
 
-                // ব্যাজ ভাসানোর লজিক
                 if (!isScreenVisible) {
-                    if (count === 0) {
-                        setIsBadgeVisible(false);
-                    } else if (hasNewId) {
-                        // শুধুমাত্র নতুন আইডি এলেই এটি আবার ভেসে উঠবে
+                    if (currentActiveIds.length === 0) setIsBadgeVisible(false);
+                    else if (hasNewId) {
                         setIsBadgeVisible(true);
                         Animated.spring(pan, { toValue: { x: 20, y: SCREEN_HEIGHT - 150 }, useNativeDriver: false }).start();
                     }
                 }
 
-                // লিস্ট আপডেট লজিক
                 setDownloads(prevDownloads => {
                     let needsSave = false;
                     let updatedList = [...prevDownloads];
@@ -130,19 +114,32 @@ export default function GlobalDownloadManager() {
                                 thumbnail: activeItem.thumbnail || `https://ui-avatars.com/api/?name=DL&background=00BFA5&color=fff&size=150`, 
                                 quality: activeItem.quality || 'N/A', type: activeItem.type || 'Media', 
                                 date: Date.now(), progress: activeItem.progress || '0', speed: activeItem.speed || '0 KB/s',
-                                eta: activeItem.eta || '--:--', isCompleted: activeItem.status === 'completed', localUri: activeItem.localUrl || null
+                                eta: activeItem.eta || '--:--', isCompleted: activeItem.status === 'completed', localUri: activeItem.localUrl || null,
+                                processingStartTime: null, fakeProgress: null
                             });
                             needsSave = true;
                         } else if (existsIndex !== -1) {
                             const item = {...updatedList[existsIndex]}; 
+                            
                             if (activeItem.status === 'completed' && !item.isCompleted) {
                                 item.progress = '100'; item.isCompleted = true; item.localUri = activeItem.localUrl; item.date = Date.now(); needsSave = true;
                                 fetch(`${MY_API_SERVER}/api/clear-progress?id=${id}`).catch(()=>{}); 
                             } else if (activeItem.status === 'error' && !item.isError) {
                                 item.isError = true; needsSave = true;
                             } else {
+                                // 🎯 ફাস্ট প্রোগ্রেস লজিক (১০০% হওয়ার পর ১৫ সেকেন্ড)
+                                let progressVal = parseFloat(activeItem.progress) || 0;
+                                if (progressVal >= 99.9 && activeItem.status !== 'completed') {
+                                    if (!item.processingStartTime) { item.processingStartTime = Date.now(); needsSave = true; }
+                                    let elapsed = Date.now() - item.processingStartTime;
+                                    item.fakeProgress = Math.min((elapsed / 15000) * 100, 99.9).toFixed(1);
+                                    needsSave = true; 
+                                } else {
+                                    item.processingStartTime = null; item.fakeProgress = null;
+                                }
+
                                 if (item.progress !== activeItem.progress || item.speed !== activeItem.speed) {
-                                    item.progress = activeItem.progress; item.speed = activeItem.speed; item.eta = activeItem.eta;
+                                    item.progress = activeItem.progress; item.speed = activeItem.speed; item.eta = activeItem.eta; needsSave = true;
                                 }
                             }
                             updatedList[existsIndex] = item;
@@ -158,9 +155,6 @@ export default function GlobalDownloadManager() {
         return () => clearInterval(interval);
     }, [isScreenVisible]);
 
-    // =====================================
-    // Badge Gestures
-    // =====================================
     const panResponder = useRef(
         PanResponder.create({
             onStartShouldSetPanResponder: () => false,
@@ -170,7 +164,7 @@ export default function GlobalDownloadManager() {
             onPanResponderRelease: (_, gestureState) => {
                 pan.flattenOffset();
                 if (pan.x._value < -20 || pan.x._value > SCREEN_WIDTH - BADGE_SIZE + 20 || pan.y._value < -20 || pan.y._value > SCREEN_HEIGHT - BADGE_SIZE + 20 || Math.abs(gestureState.vx) > 1.5 || Math.abs(gestureState.vy) > 1.5) {
-                    setIsBadgeVisible(false); // আইকন মুছে ফেলা হলো (কিন্তু আইডিগুলো সেভ থাকায় নতুন ডাউনলোড দিলে আবার আসবে)
+                    setIsBadgeVisible(false); 
                 } else {
                     let safeX = pan.x._value < 0 ? 10 : (pan.x._value > SCREEN_WIDTH - BADGE_SIZE ? SCREEN_WIDTH - BADGE_SIZE - 10 : pan.x._value);
                     let safeY = pan.y._value < 50 ? 50 : (pan.y._value > SCREEN_HEIGHT - BADGE_SIZE - 50 ? SCREEN_HEIGHT - BADGE_SIZE - 50 : pan.y._value);
@@ -179,20 +173,6 @@ export default function GlobalDownloadManager() {
             }
         })
     ).current;
-
-    // =====================================
-    // Screen Actions
-    // =====================================
-    const deleteDownload = async (id) => {
-        Alert.alert("মুছে ফেলুন", "আপনি কি এই ডাউনলোডের রেকর্ডটি মুছে ফেলতে চান?", [
-            { text: "না", style: "cancel" },
-            { text: "হ্যাঁ", onPress: async () => {
-                const newList = downloads.filter(item => item.id !== id);
-                setDownloads(newList);
-                await AsyncStorage.setItem('recorded_downloads', JSON.stringify(newList));
-            }}
-        ]);
-    };
 
     const cancelActiveDownload = async (id) => {
         Alert.alert("Cancel Download", "আপনি কি এই চলমান ডাউনলোডটি বাতিল করতে চান?", [
@@ -206,21 +186,9 @@ export default function GlobalDownloadManager() {
         ]);
     };
 
-    const handlePlayVideo = (item) => {
-        if (!item.isCompleted) return;
-        setIsScreenVisible(false); 
-        navigation.navigate('Player', {
-            videoId: item.videoId,
-            videoData: { id: item.videoId, title: item.title, channel: 'Downloaded File', thumbnail: item.thumbnail, localUri: item.localUri, type: item.type }
-        });
-    };
-
     const activeDownloads = downloads.filter(d => !d.isCompleted && !d.isError);
     const completedDownloads = downloads.filter(d => d.isCompleted);
 
-    // =====================================
-    // UI Rendering
-    // =====================================
     return (
         <>
             {isBadgeVisible && !isScreenVisible && activeCount > 0 && (
@@ -237,9 +205,7 @@ export default function GlobalDownloadManager() {
                     <StatusBar backgroundColor={isDarkMode ? '#0F0F0F' : '#FFFFFF'} barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
                     
                     <View style={[styles.header, { backgroundColor: isDarkMode ? '#0F0F0F' : '#FFFFFF', borderBottomColor: isDarkMode ? '#222' : '#E5E5E5' }]}>
-                        <TouchableOpacity onPress={() => setIsScreenVisible(false)} style={styles.backBtn}>
-                            <Ionicons name="arrow-back" size={24} color={isDarkMode ? '#FFF' : '#000'} />
-                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setIsScreenVisible(false)} style={styles.backBtn}><Ionicons name="arrow-back" size={24} color={isDarkMode ? '#FFF' : '#000'} /></TouchableOpacity>
                         <Text style={[styles.headerTitle, { color: isDarkMode ? '#FFF' : '#000' }]}>মাই ডাউনলোড লিস্ট</Text>
                         <View style={{ width: 24 }} /> 
                     </View>
@@ -252,34 +218,61 @@ export default function GlobalDownloadManager() {
                             activeDownloads.length > 0 ? (
                                 <View style={{ marginBottom: 15 }}>
                                     <Text style={styles.sectionTitle}>চলমান ডাউনলোড ({activeDownloads.length})</Text>
-                                    {activeDownloads.map(item => (
-                                        <View key={item.id} style={styles.activeCard}>
-                                            <Image source={{ uri: item.thumbnail }} style={styles.thumb} />
-                                            <View style={styles.info}>
-                                                <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
-                                                <Text style={styles.metaSpeed}>স্পিড: {item.speed || '0 KB/s'} • বাকি: {item.eta || '--:--'}</Text>
-                                                <Text style={styles.metaPercentage}>ডাউনলোড হচ্ছে... {item.progress || 0}%</Text>
-                                                <View style={styles.progressBarBg}>
-                                                    <View style={[styles.progressBarFill, { width: `${parseFloat(item.progress) || 0}%` }]} />
+                                    
+                                    {activeDownloads.map(item => {
+                                        let progressVal = parseFloat(item.progress) || 0;
+                                        let isProcessing = progressVal >= 99.9 && !item.isCompleted; 
+                                        let isPreparing = progressVal === 0 && (item.speed === '0 KB/s' || !item.speed); 
+
+                                        let displayProgress = isProcessing ? (item.fakeProgress || 0) : progressVal;
+                                        let statusText = `ডাউনলোড হচ্ছে... ${displayProgress}%`;
+                                        let speedText = `স্পিড: ${item.speed || '0 KB/s'} • বাকি: ${item.eta || '--:--'}`;
+                                        let barColor = '#00BFA5';
+
+                                        if (isProcessing) {
+                                            statusText = `ফাইনাল প্রসেসিং... ${displayProgress}%`;
+                                            speedText = "ভিডিও এবং অডিও একসাথে যুক্ত করা হচ্ছে...";
+                                            barColor = '#FFD700'; 
+                                        }
+
+                                        return (
+                                            <View key={item.id} style={[styles.activeCard, { overflow: 'hidden' }]}>
+                                                {/* 🎯 Shimmer Animation */}
+                                                {isPreparing && <ShimmerOverlay />}
+
+                                                {/* 🎯 Thumbnail Render */}
+                                                {item.type === 'audio' ? (
+                                                    <View style={styles.splitThumbContainer}>
+                                                        <Image source={{ uri: item.thumbnail }} style={styles.halfThumb} />
+                                                        <View style={styles.halfIcon}><Ionicons name="musical-notes" size={30} color="#00BFA5" /></View>
+                                                    </View>
+                                                ) : (
+                                                    <Image source={{ uri: item.thumbnail }} style={styles.thumb} />
+                                                )}
+
+                                                <View style={styles.info}>
+                                                    <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
+                                                    <Text style={[styles.metaSpeed, isProcessing && {color: '#FFD700'}]}>{isPreparing ? 'সার্ভারের সাথে কানেক্ট করা হচ্ছে...' : speedText}</Text>
+                                                    <Text style={[styles.metaPercentage, isProcessing && {color: '#FFD700'}]}>{isPreparing ? 'লিংক প্রস্তুত হচ্ছে...' : statusText}</Text>
+                                                    <View style={styles.progressBarBg}>
+                                                        <View style={[styles.progressBarFill, { width: `${displayProgress}%`, backgroundColor: barColor }]} />
+                                                    </View>
                                                 </View>
+                                                <TouchableOpacity style={[styles.cancelBtn, {zIndex: 20}]} onPress={() => cancelActiveDownload(item.id)}>
+                                                    <Ionicons name="close" size={28} color="#FF4444" />
+                                                </TouchableOpacity>
                                             </View>
-                                            <TouchableOpacity style={styles.cancelBtn} onPress={() => cancelActiveDownload(item.id)}>
-                                                <Ionicons name="close" size={28} color="#FF4444" />
-                                            </TouchableOpacity>
-                                        </View>
-                                    ))}
+                                        );
+                                    })}
                                     <View style={styles.divider} />
                                 </View>
                             ) : null
                         }
                         renderItem={({ item }) => (
                             <View style={styles.card}>
-                                <TouchableOpacity style={styles.cardMain} activeOpacity={0.8} onPress={() => handlePlayVideo(item)}>
+                                <TouchableOpacity style={styles.cardMain} activeOpacity={0.8}>
                                     {item.type === 'audio' ? (
-                                        <View style={styles.splitThumbContainer}>
-                                            <Image source={{ uri: item.thumbnail }} style={styles.halfThumb} />
-                                            <View style={styles.halfIcon}><Ionicons name="musical-notes" size={30} color="#00BFA5" /></View>
-                                        </View>
+                                        <View style={styles.splitThumbContainer}><Image source={{ uri: item.thumbnail }} style={styles.halfThumb} /><View style={styles.halfIcon}><Ionicons name="musical-notes" size={30} color="#00BFA5" /></View></View>
                                     ) : (
                                         <Image source={{ uri: item.thumbnail }} style={styles.thumb} />
                                     )}
@@ -288,19 +281,10 @@ export default function GlobalDownloadManager() {
                                         <Text style={styles.meta}>{item.quality} • {item.type?.toUpperCase()} • {timeAgoBn(item.date)}</Text>
                                     </View>
                                 </TouchableOpacity>
-                                <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteDownload(item.id)}>
-                                    <Ionicons name="trash-outline" size={22} color="#FF4444" />
-                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.deleteBtn} onPress={() => {}}><Ionicons name="trash-outline" size={22} color="#FF4444" /></TouchableOpacity>
                             </View>
                         )}
-                        ListEmptyComponent={
-                            activeDownloads.length === 0 && completedDownloads.length === 0 && (
-                                <View style={styles.empty}>
-                                    <Ionicons name="download-outline" size={80} color="#333" />
-                                    <Text style={styles.emptyText}>{t('কোনো ডাউনলোড পাওয়া যায়নি')}</Text>
-                                </View>
-                            )
-                        }
+                        ListEmptyComponent={<View style={styles.empty}><Ionicons name="download-outline" size={80} color="#333" /><Text style={styles.emptyText}>{t('কোনো ডাউনলোড পাওয়া যায়নি')}</Text></View>}
                     />
                 </SafeAreaView>
             </Modal>
@@ -313,34 +297,29 @@ const styles = StyleSheet.create({
     badge: { width: BADGE_SIZE, height: BADGE_SIZE, backgroundColor: '#00BFA5', borderRadius: BADGE_SIZE / 2, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, borderWidth: 2, borderColor: '#FFF' },
     countCircle: { position: 'absolute', top: -5, right: -5, backgroundColor: '#FF0000', width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#FFF' },
     countText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
-    
     container: { flex: 1 },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 15, paddingHorizontal: 15, borderBottomWidth: 1 },
     backBtn: { padding: 5 },
     headerTitle: { fontSize: 20, fontWeight: 'bold' },
-    
     list: { padding: 10 },
     sectionTitle: { color: '#00BFA5', fontSize: 16, fontWeight: 'bold', marginBottom: 10, marginLeft: 5 },
-    activeCard: { flexDirection: 'row', backgroundColor: '#1A1A1A', borderRadius: 10, padding: 10, marginBottom: 10, alignItems: 'center', borderColor: '#00BFA5', borderWidth: 1 },
+    activeCard: { flexDirection: 'row', backgroundColor: '#1A1A1A', borderRadius: 10, padding: 10, marginBottom: 10, alignItems: 'center', borderColor: '#00BFA5', borderWidth: 1, position: 'relative' },
     cancelBtn: { paddingLeft: 10 },
-    
     card: { flexDirection: 'row', backgroundColor: '#1A1A1A', borderRadius: 10, marginBottom: 12, overflow: 'hidden', alignItems: 'center' },
     cardMain: { flex: 1, flexDirection: 'row', padding: 10 },
-    thumb: { width: 120, height: 68, borderRadius: 6, backgroundColor: '#333' },
-    splitThumbContainer: { width: 120, height: 68, borderRadius: 6, backgroundColor: '#222', flexDirection: 'row', overflow: 'hidden' },
+    thumb: { width: 120, height: 68, borderRadius: 6, backgroundColor: '#333', zIndex: 5 },
+    splitThumbContainer: { width: 120, height: 68, borderRadius: 6, backgroundColor: '#222', flexDirection: 'row', overflow: 'hidden', zIndex: 5 },
     halfThumb: { width: '50%', height: '100%', backgroundColor: '#333' },
     halfIcon: { width: '50%', height: '100%', alignItems: 'center', justifyContent: 'center' },
-    
-    info: { flex: 1, marginLeft: 12, justifyContent: 'center' },
+    info: { flex: 1, marginLeft: 12, justifyContent: 'center', zIndex: 5 },
     title: { color: '#FFF', fontSize: 14, fontWeight: '500', marginBottom: 4 },
     metaSpeed: { color: '#00BFA5', fontSize: 11, marginBottom: 2, fontWeight: 'bold' },
     metaPercentage: { color: '#AAA', fontSize: 11, marginBottom: 5 },
     meta: { color: '#AAA', fontSize: 12, marginBottom: 5 },
     progressBarBg: { height: 4, backgroundColor: '#333', borderRadius: 2, overflow: 'hidden', width: '100%', marginTop: 2 },
-    progressBarFill: { height: '100%', backgroundColor: '#00BFA5' },
+    progressBarFill: { height: '100%' }, 
     deleteBtn: { padding: 15 },
     divider: { height: 1, backgroundColor: '#333', marginVertical: 10 },
-    
     empty: { flex: 1, marginTop: 100, alignItems: 'center', justifyContent: 'center' },
     emptyText: { color: '#555', fontSize: 16, marginTop: 15 }
 });
