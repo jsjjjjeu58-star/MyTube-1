@@ -11,6 +11,16 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import * as WebBrowser from 'expo-web-browser'; 
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
+// 🚨 [REAL AI INTEGRATION PACKAGES]
+import { BlurView } from 'expo-blur';
+import * as VideoThumbnails from 'expo-video-thumbnails';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
+import { Buffer } from 'buffer';
+import * as jpeg from 'jpeg-js';
+import FaceDetection, { FaceDetectorContourMode, FaceDetectorLandmarkMode } from '@react-native-ml-kit/face-detection';
+import { loadTensorflowModel } from 'react-native-fast-tflite';
+
 LogBox.ignoreLogs(['Video component', 'expo-audio', 'expo-video']);
 
 const windowDim = Dimensions.get('window');
@@ -62,9 +72,8 @@ export default function GlobalPlayer() {
   const navigation = useNavigation();
   const videoViewRef = useRef(null); 
   const syncAudioRef = useRef(null); 
-  const { locale } = useLanguage(); // re-render when language changes
+  const { locale } = useLanguage(); 
 
-  
   const currentVideoIdRef = useRef(null);
   const fetchIdRef = useRef(0);
   
@@ -110,11 +119,17 @@ export default function GlobalPlayer() {
   const isSyncingRef = useRef(false);
   const pendingSeekRef = useRef(null); 
 
+  // 🚨 [REAL AI STATES AND REFS]
+  const [isBlurred, setIsBlurred] = useState(false);
+  const lastAiCheckTimeRef = useRef(0);
+  const isAiProcessingRef = useRef(false);
+  const genderModelRef = useRef(null);
+
   useEffect(() => {
     const setupAudio = async () => {
       try {
         await setAudioModeAsync({
-          staysActiveInBackground: true, // 🚨 লক স্ক্রিনের জন্য এটি অত্যন্ত জরুরি
+          staysActiveInBackground: true, 
           playsInSilentModeIOS: true,
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
@@ -136,7 +151,6 @@ export default function GlobalPlayer() {
     try { p.loop = false; } catch(e) {}
     safeSetRate(p, currentSpeed);
     
-    // 🚨 [Lock Screen Magic] অডিও মোডে থাকলে মিউট অফ রাখতে হবে যেন expo-video সাউন্ড প্লে করে
     if (streamModeRef.current === 'separate' && !isAudioModeRef.current) {
         safeSetMuted(p, true); 
     } else {
@@ -152,10 +166,7 @@ export default function GlobalPlayer() {
 
   useEffect(() => {
     const appStateSub = AppState.addEventListener('change', async (nextAppState) => {
-        if (nextAppState.match(/inactive|background/)) {
-            // 🚨 [NEW] লক স্ক্রিন ও ব্যাকগ্রাউন্ড প্লেব্যাক সচল রাখার জন্য pause() রিমুভ করা হয়েছে।
-            // OS নিজে থেকেই expo-video এর Media Session ধরে রাখবে এবং নোটিফিকেশন দেখাবে।
-        }
+        if (nextAppState.match(/inactive|background/)) {}
     });
     return () => appStateSub.remove();
   }, [player]);
@@ -236,7 +247,6 @@ export default function GlobalPlayer() {
       setCurrentTime(newTime); 
       try {
           safeSeek(player, newTime); 
-          // শুধু ভিডিও মোডেই অডিও আলাদাভাবে সিংক হবে 
           if (!isAudioModeRef.current && streamModeRef.current === 'separate' && syncAudioRef.current) {
               safeSeek(syncAudioRef.current, newTime); 
           }
@@ -266,6 +276,9 @@ export default function GlobalPlayer() {
       cachedAudioUrlRef.current = null;
       pendingSeekRef.current = null;
       
+      setIsBlurred(false); // নতুন ভিডিও শুরু হলে ব্লার রিসেট
+      lastAiCheckTimeRef.current = 0;
+
       setCurrentTime(0);
       setBuffered(0);
       scale.setValue(1);
@@ -301,7 +314,6 @@ export default function GlobalPlayer() {
           
           if (audioUrlToPlay) {
               safeReleaseAudio();
-              // 🚨 [Lock Screen Magic] অডিও ফাইলটিও expo-video দিয়ে প্লে করা হচ্ছে, যেন লক স্ক্রিন নোটিফিকেশন কাজ করে
               setVideoSource(audioUrlToPlay); 
               pendingSeekRef.current = resumeTimeRef.current; 
           }
@@ -427,6 +439,117 @@ export default function GlobalPlayer() {
       setShowSettingsMenu(false);
   };
 
+  // 🚨 [REAL TFLITE MODEL LOADER & CORE INFERENCE ENGINE]
+  const loadGenderModelAsync = async () => {
+      if (!genderModelRef.current) {
+          try {
+              genderModelRef.current = await loadTensorflowModel(require('../assets/gender_classification.tflite'));
+              console.log("AI Model Loaded Perfectly!");
+          } catch (e) {
+              console.log("Model Loading Failure:", e);
+          }
+      }
+  };
+
+  const detectFacesWithMLKit = async (uri) => {
+      try {
+          const faces = await FaceDetection.detect(uri, {
+              landmarkMode: FaceDetectorLandmarkMode.NONE,
+              contourMode: FaceDetectorContourMode.NONE,
+              classificationMode: 'none',
+              performanceMode: 'fast' 
+          });
+          return faces;
+      } catch (error) {
+          console.log("ML Kit Inference Error: ", error);
+          return [];
+      }
+  };
+
+  const checkGenderWithTFLite = async (croppedFaceUri) => {
+      try {
+          await loadGenderModelAsync();
+          if (!genderModelRef.current) return false;
+
+          // ১. মুখমণ্ডলের ছবিটিকে মডেল ইনপুট সাইজে রিসাইজ করা (ধরি ২২৪x২২৪)
+          const MODEL_SIZE = 224; 
+          const resizedImage = await ImageManipulator.manipulateAsync(
+              croppedFaceUri,
+              [{ resize: { width: MODEL_SIZE, height: MODEL_SIZE } }],
+              { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+          );
+
+          // ২. ছবিটিকে Base64 ডেটা হিসেবে মেমরিতে রিড করা
+          const base64Data = await FileSystem.readAsStringAsync(resizedImage.uri, { 
+              encoding: FileSystem.EncodingType.Base64 
+          });
+
+          // ৩. Base64 থেকে র-বাফার ও জেপেগ ডিকোড করা
+          const rawBuffer = Buffer.from(base64Data, 'base64');
+          const rawImageData = jpeg.decode(rawBuffer, { useTArray: true });
+
+          // ৪. RGBA পিক্সেল ম্যাট্রিক্স থেকে RGB এ রূপান্তর ও ০.০ - ১.০ এর মাঝে নরমালাইজ করা
+          const rgbPixels = new Float32Array(MODEL_SIZE * MODEL_SIZE * 3);
+          let rgbIndex = 0;
+          for (let i = 0; i < rawImageData.data.length; i += 4) {
+              rgbPixels[rgbIndex++] = rawImageData.data[i] / 255.0;     // Red Channel
+              rgbPixels[rgbIndex++] = rawImageData.data[i + 1] / 255.0; // Green Channel
+              rgbPixels[rgbIndex++] = rawImageData.data[i + 2] / 255.0; // Blue Channel
+          }
+
+          // ৫. TFLite মডেলে বাফার ডেটা পুশ করে প্রোবাবিলিটি বের করা
+          const output = await genderModelRef.current.run([rgbPixels]);
+          
+          if (output && output[0] && output[0].length > 0) {
+              const probability = output[0][0]; 
+              console.log(`Female Probability: ${probability}`);
+              return probability > 0.5; // ০.৫ এর বেশি হলে Female (True), কম হলে Male (False)
+          }
+          return false;
+      } catch (error) {
+          console.log("TFLite Pipeline Error: ", error);
+          return false;
+      }
+  };
+
+  const runSafeViewingAI = async (timeInSeconds, vUrl) => {
+      isAiProcessingRef.current = true;
+      try {
+          // ১. চলন্ত ভিডিওর নির্দিষ্ট সেকেন্ডের রিয়েল-টাইম ফ্রেম কাট করা
+          const { uri } = await VideoThumbnails.getThumbnailAsync(vUrl, {
+              time: Math.floor(timeInSeconds * 1000), 
+              quality: 0.5, 
+          });
+
+          // ২. ML Kit দিয়ে মুখাবয়ব সনাক্তকরণ
+          const faces = await detectFacesWithMLKit(uri);
+
+          if (faces && faces.length > 0) {
+              // ৩. প্রথম ফেসের বাউন্ডিং বক্স রিকভার করে নিখুঁতভাবে ক্রপ করা
+              const bounds = faces[0].bounds;
+              const originX = Math.max(0, bounds.left || bounds.originX || 0);
+              const originY = Math.max(0, bounds.top || bounds.originY || 0);
+              
+              const croppedFace = await ImageManipulator.manipulateAsync(
+                  uri,
+                  [{ crop: { originX, originY, width: bounds.width, height: bounds.height } }],
+                  { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+              );
+
+              // ৪. ক্রপ করা ফেসটি TFLite মডেলে জেন্ডার ফিল্টারিংয়ের জন্য পাঠানো
+              const isFemale = await checkGenderWithTFLite(croppedFace.uri);
+              setIsBlurred(isFemale); 
+          } else {
+              setIsBlurred(false); // ফেস না পাওয়া গেলে ব্লার রিমুভ
+          }
+      } catch (error) {
+          console.log("AI Smart Filtering Loop Error: ", error);
+          setIsBlurred(false);
+      } finally {
+          isAiProcessingRef.current = false; 
+      }
+  };
+
   useEffect(() => {
     const interval = setInterval(async () => {
         if (isSyncingRef.current) return; 
@@ -443,10 +566,20 @@ export default function GlobalPlayer() {
                 } else if (!isSlidingRef.current && (player.currentTime > 0 || player.playing)) {
                     setCurrentTime(player.currentTime);
                     if (player.duration > 0) setDuration(player.duration);
+                    
+                    // 🚨 [REAL TIME AI TRIGGER LOGIC] 
+                    if (videoSource && !isAudioMode) {
+                        const currentSec = player.currentTime;
+                        // প্রতি ২ সেকেন্ডের ব্যবধানে ব্যাকগ্রাউন্ড লক মুক্ত থাকলে এআই ইনফারেন্স রান হবে
+                        if (Math.abs(currentSec - lastAiCheckTimeRef.current) >= 2 && !isAiProcessingRef.current) {
+                            lastAiCheckTimeRef.current = currentSec;
+                            runSafeViewingAI(currentSec, videoSource);
+                        }
+                    }
                 }
             }
 
-            // 🚨 Separate audio track sync (শুধুমাত্র ভিডিও মোডে থাকলে)
+            // Separate audio track sync 
             if (!isAudioMode && streamMode === 'separate' && videoSource && syncAudioRef.current) {
                 const isAudioReady = syncAudioRef.current.duration > 0 || syncAudioRef.current.playing;
                 if (isAudioReady) {
@@ -554,6 +687,7 @@ export default function GlobalPlayer() {
       setVideoSource(null); 
       if (player) player.pause();
       safeReleaseAudio();
+      setIsBlurred(false); 
   };
 
   const formatTime = (timeInSeconds) => {
@@ -586,15 +720,26 @@ export default function GlobalPlayer() {
             
             <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
                 {videoSource ? (
-                    <VideoView 
-                        key={videoSource} 
-                        ref={videoViewRef} 
-                        player={player} 
-                        style={styles.video} 
-                        contentFit="contain"
-                        nativeControls={false}
-                        allowsPictureInPicture // PiP মোড সাপোর্ট করার জন্য
-                    />
+                    <>
+                        <VideoView 
+                            key={videoSource} 
+                            ref={videoViewRef} 
+                            player={player} 
+                            style={styles.video} 
+                            contentFit="contain"
+                            nativeControls={false}
+                            allowsPictureInPicture 
+                        />
+                        
+                        {/* 🚨 [REAL TIME SMART BLUR VIEW OVERLAY] */}
+                        {isBlurred && !isAudioMode && (
+                            <BlurView 
+                                intensity={100} 
+                                tint="dark" 
+                                style={StyleSheet.absoluteFillObject} 
+                            />
+                        )}
+                    </>
                 ) : null}
             </Animated.View>
 
