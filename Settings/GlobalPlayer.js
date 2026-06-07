@@ -34,7 +34,6 @@ const MINI_HEIGHT = (MINI_WIDTH * 9) / 16;
 
 const MY_API_SERVER = "http://127.0.0.1:10000"; 
 
-// সেফটি ফাংশন
 const safePlay = (p) => {
     try { if (p && typeof p.play === 'function') { const res = p.play(); if (res && res.catch) res.catch(()=>{}); } } catch(e){}
 };
@@ -128,11 +127,10 @@ export default function GlobalPlayer() {
   const isSyncingRef = useRef(false);
   const pendingSeekRef = useRef(null); 
 
-  // 🚨 [REAL AI STATES AND REFS - NEW ARCHITECTURE]
+  // 🚨 [REAL AI STATES AND REFS]
   const [isBlurred, setIsBlurred] = useState(false);
   const isAiProcessingRef = useRef(false);
   const genderModelRef = useRef(null);
-  // এই ম্যাপটিতে এআই তার তৈরি করা টাইমলাইন ডেটা জমিয়ে রাখবে। যেমন: { 2: false, 4: true, 6: false }
   const blurTimelineMapRef = useRef({}); 
 
   useEffect(() => {
@@ -144,7 +142,7 @@ export default function GlobalPlayer() {
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
         });
-      } catch (e) { console.log("Audio Setup Error:", e); }
+      } catch (e) {}
     };
     setupAudio();
   }, []);
@@ -250,7 +248,7 @@ export default function GlobalPlayer() {
             scale.setValue(1); 
             baseScaleRef.current = 1;
         }
-    } catch (error) { console.log(error); }
+    } catch (error) {}
   };
 
   const seekTo = async (newTime) => {
@@ -260,7 +258,7 @@ export default function GlobalPlayer() {
           if (!isAudioModeRef.current && streamModeRef.current === 'separate' && syncAudioRef.current) {
               safeSeek(syncAudioRef.current, newTime); 
           }
-      } catch (error) { console.log("Seek Error: ", error); }
+      } catch (error) {}
   };
 
   useEffect(() => {
@@ -286,7 +284,6 @@ export default function GlobalPlayer() {
       cachedAudioUrlRef.current = null;
       pendingSeekRef.current = null;
       
-      // 🚨 নতুন ভিডিও শুরু হলে ব্লার এবং টাইমলাইন ডেটা মুছে রিসেট করা হবে
       setIsBlurred(false); 
       blurTimelineMapRef.current = {}; 
       isAiProcessingRef.current = false;
@@ -531,7 +528,7 @@ export default function GlobalPlayer() {
       }
   };
 
-  // 🚨 [NEW] প্রি-কম্পিউটিং (Lookahead) ফাংশন: এটি শুধু নির্দিষ্ট সেকেন্ড চেক করে ম্যাপে সেভ করবে
+  // 🚨 [FIXED] টাইমআউট ৪ সেকেন্ড করা হয়েছে এবং এরর মেসেজ লগে যুক্ত করা হয়েছে
   const preComputeBlurForTime = async (targetTimeInSeconds, vUrl) => {
       if (blurTimelineMapRef.current[targetTimeInSeconds] !== undefined) return; 
       
@@ -541,11 +538,12 @@ export default function GlobalPlayer() {
       try {
           const thumbnailPromise = VideoThumbnails.getThumbnailAsync(vUrl, {
               time: Math.floor(targetTimeInSeconds * 1000), 
-              quality: 0.8, 
+              quality: 0.5, // কোয়ালিটি ০.৫ রাখা হলো যাতে দ্রুত ডাউনলোড হয়
           });
 
           const timeoutPromise = new Promise((_, reject) => {
-              setTimeout(() => reject(new Error("Timeout")), 1500);
+              // 👈 টাইমআউট বাড়িয়ে ৪ সেকেন্ড (4000ms) করা হলো
+              setTimeout(() => reject(new Error("Timeout: Slow Network or Stream Hang")), 4000); 
           });
 
           const { uri } = await Promise.race([thumbnailPromise, timeoutPromise]);
@@ -572,47 +570,42 @@ export default function GlobalPlayer() {
               }
           }
           
-          // ম্যাপে রেজাল্ট সেভ করে রাখা হলো
           blurTimelineMapRef.current[targetTimeInSeconds] = finalDecision;
           console.log(`✅ [Lookahead] Saved: Sec ${targetTimeInSeconds} -> Blur: ${finalDecision}`);
 
       } catch (error) {
-          // টাইমআউট বা এরর হলে সেভ করে রাখবে false হিসেবে, যাতে প্লেয়ার আর কখনো এটিকে প্রসেস করতে না বলে
           blurTimelineMapRef.current[targetTimeInSeconds] = false;
-          console.log(`⏭️ [Lookahead] Skipped: Sec ${targetTimeInSeconds}`);
+          // 👈 ঠিক কী কারণে স্কিপ হলো, তা লগে প্রিন্ট হবে
+          console.log(`⏭️ [Lookahead] Skipped: Sec ${targetTimeInSeconds} | Reason: ${error.message || "Unknown Error"}`);
       } finally {
           isAiProcessingRef.current = false; 
       }
   };
 
-  // 🚨 [NEW] Lookahead Background Queue Loop (এটি ভিডিওর চেয়ে ১০ সেকেন্ড সামনে থাকবে)
   useEffect(() => {
     const lookaheadInterval = setInterval(async () => {
         if (!videoSource || isAudioMode || isAiProcessingRef.current) return;
         if (!player || player.duration <= 0) return;
 
         const currentSec = player.currentTime;
-        // আমরা ভিডিওর বর্তমান সময় থেকে সামনের ২, ৪, ৬, ৮ এবং ১০ সেকেন্ডের জন্য ছবি কাটব
-        const lookaheadOffsets = [0, 2, 4, 6, 8, 10]; 
+        // 👈 প্লেয়ার যে সেকেন্ডে আছে, তার ২ সেকেন্ড পর থেকে শুরু করে সামনের ১৫ সেকেন্ড পর্যন্ত স্ক্যান করবে
+        const lookaheadOffsets = [2, 4, 6, 8, 10, 12, 14]; 
 
         for (let offset of lookaheadOffsets) {
-            // সময়কে ২ সেকেন্ডের চাঙ্কে ভাগ করা হলো (যাতে 2.1 এবং 3.8 সেকেন্ড একই চাঙ্কে পড়ে)
             const targetChunkTime = Math.floor((currentSec + offset) / 2) * 2;
             
             if (targetChunkTime > player.duration) continue;
 
-            // যদি এই চাঙ্কটি ম্যাপে না থাকে, তবে প্রসেস করা শুরু করো
             if (blurTimelineMapRef.current[targetChunkTime] === undefined) {
                 await preComputeBlurForTime(targetChunkTime, videoSource);
-                break; // একবারে শুধু একটি ফ্রেম প্রসেস করবে, যাতে মোবাইল হ্যাং না হয়
+                break; 
             }
         }
-    }, 500); // প্রতি আধা সেকেন্ড পরপর চেক করবে নতুন কাজ আছে কি না
+    }, 500); 
 
     return () => clearInterval(lookaheadInterval);
   }, [videoSource, isAudioMode, player]);
 
-  // 🚨 [MODIFIED] Player UI Sync Loop (এটি এখন আর এআই রান করবে না, শুধু ম্যাপ থেকে ডেটা পড়বে)
   useEffect(() => {
     const interval = setInterval(async () => {
         if (isSyncingRef.current) return; 
@@ -632,7 +625,7 @@ export default function GlobalPlayer() {
                             setCurrentTime(player.currentTime);
                             if (player.duration > 0) setDuration(player.duration);
                             
-                            // ⚡ Zero-Lag Checking: শুধু ম্যাপ চেক করে ব্লার অন/অফ করবে
+                            // ⚡ Zero-Lag Checking
                             if (!isAudioMode) {
                                 const currentChunkTime = Math.floor(player.currentTime / 2) * 2;
                                 const mappedBlurDecision = blurTimelineMapRef.current[currentChunkTime];
