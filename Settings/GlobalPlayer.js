@@ -481,14 +481,11 @@ export default function GlobalPlayer() {
       }
   };
 
+  // 🚨 [FIXED] ডিফল্ট (পাওয়ারফুল) মোডে কল করা হচ্ছে
   const detectFacesWithMLKit = async (uri) => {
       try {
-          const faces = await FaceDetection.detect(uri, {
-              landmarkMode: 'none',
-              contourMode: 'none',
-              classificationMode: 'none',
-              performanceMode: 'fast' 
-          });
+          // কোনো কাস্টম অপশন না দিয়ে ডিফল্ট মোডে কল করলে এটি সবচেয়ে ভালো স্ক্যান করে
+          const faces = await FaceDetection.detect(uri);
           return faces;
       } catch (error) {
           return [];
@@ -536,20 +533,18 @@ export default function GlobalPlayer() {
       }
   };
 
-  // 🚨 [NEW] ডিটেকটিভ লগস সহ আপডেটেড AI ফাংশন
   const runSafeViewingAI = async (timeInSeconds, vUrl) => {
       isAiProcessingRef.current = true;
       console.log(`\n--- 🤖 AI CHECK AT ${timeInSeconds.toFixed(1)}s ---`);
       
       try {
-          // ১. থাম্বনেইল কাটা
+          // 🚨 [FIXED] ছবির কোয়ালিটি 0.3 থেকে বাড়িয়ে 0.8 (HD) করে দেওয়া হলো
           const { uri } = await VideoThumbnails.getThumbnailAsync(vUrl, {
               time: Math.floor(timeInSeconds * 1000), 
-              quality: 0.3, 
+              quality: 0.8, 
           });
           console.log("📸 Thumbnail Captured: Success");
 
-          // ২. ফেস ডিটেকশন
           const faces = await detectFacesWithMLKit(uri);
           console.log(`👤 Faces Detected: ${faces.length}`);
 
@@ -563,7 +558,6 @@ export default function GlobalPlayer() {
               const height = box.height ?? 0;
               
               if (width > 0 && height > 0) {
-                  // ৩. ফেস ক্রপ করা
                   const croppedFace = await ImageManipulator.manipulateAsync(
                       uri,
                       [{ crop: { originX, originY, width, height } }],
@@ -571,7 +565,6 @@ export default function GlobalPlayer() {
                   );
                   console.log("✂️ Face Cropped: Success");
 
-                  // ৪. মডেল চেক করা
                   const isFemale = await checkGenderWithTFLite(croppedFace.uri);
                   console.log(`🛑 Final Decision: Blur = ${isFemale}`);
                   
