@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // 🚨 [REAL AI INTEGRATION PACKAGES]
 import { BlurView } from 'expo-blur';
-import { captureRef } from 'react-native-view-shot'; // 👈 [NEW] আল্টিমেট স্ক্রিনশট প্যাকেজ
+import { captureRef } from 'react-native-view-shot'; // 👈 আল্টিমেট স্ক্রিনশট প্যাকেজ
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer'; 
@@ -98,14 +98,11 @@ export default function GlobalPlayer() {
   const lastAiCheckTimeRef = useRef(0);
   const genderModelRef = useRef(null);
   
-  // 👈 স্ক্রিনশট নেওয়ার জন্য নতুন রেফারেন্স
   const snapshotRef = useRef(null);
 
   useEffect(() => {
     const setupAudio = async () => {
-      try {
-        await setAudioModeAsync({ staysActiveInBackground: true, playsInSilentModeIOS: true, shouldDuckAndroid: true, playThroughEarpieceAndroid: false });
-      } catch (e) {}
+      try { await setAudioModeAsync({ staysActiveInBackground: true, playsInSilentModeIOS: true, shouldDuckAndroid: true, playThroughEarpieceAndroid: false }); } catch (e) {}
     };
     setupAudio();
   }, []);
@@ -379,7 +376,7 @@ export default function GlobalPlayer() {
       } catch (error) { return false; }
   };
 
-  // 🚨 [NEW] দ্য আল্টিমেট স্ক্রিনশট হ্যাক (Zero Network Timeout)
+  // 🚨 [FIXED] একমাত্র এবং ফাইনাল AI ফাংশন (Zero Network Timeout)
   const runRealTimeAI = async (timeInSeconds) => {
       if (!snapshotRef.current) return;
       isAiProcessingRef.current = true;
@@ -561,12 +558,11 @@ export default function GlobalPlayer() {
             <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
                 {videoSource ? (
                     <>
-                        {/* 🚨 [NEW] স্ক্রিনশটের জন্য শুধু ভিডিওটি Ref করা হয়েছে, ব্লার নয় */}
                         <View ref={snapshotRef} collapsable={false} style={styles.video}>
                             <VideoView player={player} style={styles.video} contentFit="contain" nativeControls={false} allowsPictureInPicture />
                         </View>
                         
-                        {/* 🚨 [REAL TIME SMART BLUR] - ব্লার থাকবে স্ক্রিনশট এরিয়ার বাইরে, যাতে এআই অন্ধ না হয় */}
+                        {/* 🚨 [REAL TIME SMART BLUR VIEW OVERLAY] */}
                         {isBlurred && !isAudioMode && (
                             <BlurView intensity={100} tint="dark" style={StyleSheet.absoluteFillObject} />
                         )}
