@@ -362,13 +362,19 @@ export default function GlobalPlayer() {
               rgbPixels[rgbIndex++] = rawImageData.data[i + 2] / 255.0; 
           }
 
-          // 🚨 [THE MAGIC BUFFER FIX] - C++ Nitro Engine কে array buffer পাঠানো হলো
-          const output = await genderModelRef.current.run([rgbPixels.buffer]);
+          // 🚨 [GENDER FIX] - অফিশিয়াল ডকুমেন্টেশন অনুযায়ী Array বা বাফার পাঠানো হচ্ছে
+          const output = await genderModelRef.current.run([[rgbPixels.buffer]]);
+
+          // 🚨 [DEBUG] মডেলের আসল আউটপুট প্রিন্ট করা হলো যাতে আমরা বুঝতে পারি সমস্যা কোথায়
+          if (!output) { console.log("🤖 TFLite Raw Output is NULL!"); return false; }
+          console.log(`🤖 TFLite Raw Output: ${JSON.stringify(output)}`);
 
           if (output && output[0] && output[0].length > 0) {
               const probability = output[0][0];
               console.log(`👩 Female Probability: ${probability.toFixed(3)}`);
-              return probability > 0.5; 
+              
+              // 🚨 [THE MAGIC THRESHOLD FIX] - আপনার মডেলে থ্রেশহোল্ড হয়তো কম। তাই আমি টেস্টের জন্য ০.২ দিলাম।
+              return probability > 0.2; 
           }
           return false;
       } catch (error) { 
@@ -390,10 +396,9 @@ export default function GlobalPlayer() {
           setAiVisionImage(uri);
 
           const faces = await detectFacesWithMLKit(uri);
-          console.log(`👤 Faces found: ${faces.length}`);
-
+          
           if (faces && faces.length > 0) {
-              // আমরা শুধু প্রথম ফেসটি নিচ্ছি
+              console.log(`👤 Faces found: ${faces.length}`);
               const face = faces[0];
               const box = face.frame || face.bounds || {}; 
               
@@ -407,10 +412,8 @@ export default function GlobalPlayer() {
                       uri, [{ crop: { originX, originY, width, height } }], { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
                   );
                   
-                  // এআই চেক করবে ফেসটি মেয়ে কিনা
                   const isFemale = await checkGenderWithTFLite(croppedFace.uri);
                   
-                  // মেয়ে হলে পুরো ভিডিও ব্লার করে দেবে
                   setIsBlurred(isFemale); 
               } else {
                   setIsBlurred(false);
@@ -444,7 +447,7 @@ export default function GlobalPlayer() {
                             setCurrentTime(player.currentTime);
                             if (player.duration > 0) setDuration(player.duration);
                             
-                            // 🤖 প্রতি ৩ সেকেন্ড পরপর এআই ভিডিও স্ক্যান করবে
+                            // 🤖 ৩ সেকেন্ড পরপর এআই চেক 
                             if (videoSource && !isAudioMode && player.playing) {
                                 const currentSec = player.currentTime;
                                 if (Math.abs(currentSec - lastAiCheckTimeRef.current) >= 3 && !isAiProcessingRef.current) {
