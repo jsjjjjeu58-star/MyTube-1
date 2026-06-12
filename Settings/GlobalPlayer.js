@@ -14,6 +14,7 @@ import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
 // 🚨 [REAL AI INTEGRATION PACKAGES]
+import { BlurView } from 'expo-blur';
 import { captureRef } from 'react-native-view-shot'; 
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy'; 
@@ -100,7 +101,7 @@ export default function GlobalPlayer() {
   const isAiProcessingRef = useRef(false);
   const lastAiCheckTimeRef = useRef(0);
   
-  // 🚨 [NEW] ব্লার ধরে রাখার জন্য টাইম ট্র্যাকার
+  // ব্লার ধরে রাখার জন্য টাইম ট্র্যাকার
   const lastFemaleDetectedTimeRef = useRef(-999);
   
   const genderModelRef = useRef(null);
@@ -222,7 +223,6 @@ export default function GlobalPlayer() {
       setAiVisionImage(null); 
       setFullFrameUri(null);
       
-      // 🚨 [RESET] নতুন ভিডিও শুরু হলে হোল্ড টাইমার জিরো করে দেওয়া হচ্ছে
       lastFemaleDetectedTimeRef.current = -999;
       
       isAiProcessingRef.current = false;
@@ -451,7 +451,6 @@ export default function GlobalPlayer() {
 
           if (!uri) return; 
 
-          // নতুন ফ্রেম আসার সাথে সাথে সেট করা হলো যাতে ব্লার ইফেক্ট আপডেট হয়
           setFullFrameUri(uri);
 
           const faces = await detectFacesWithMLKit(uri);
@@ -492,13 +491,10 @@ export default function GlobalPlayer() {
                   }
               }
               
-              // 🚨 [SMART BLUR HOLD LOGIC]
               if (shouldBlurVideo) {
-                  // মহিলা পেলে সাথে সাথে টাইম নোট করে রাখবো এবং ব্লার অন করব
                   lastFemaleDetectedTimeRef.current = currentPlaybackTime;
                   setIsBlurred(true); 
               } else {
-                  // মহিলা না পেলেও যদি ৫ সেকেন্ড পার না হয়, তবে ব্লার ধরে রাখবো
                   if (currentPlaybackTime - lastFemaleDetectedTimeRef.current <= 5) {
                       setIsBlurred(true);
                       console.log("Holding Blur for continuity...");
@@ -507,7 +503,6 @@ export default function GlobalPlayer() {
                   }
               }
           } else {
-              // স্ক্রিনে কোনো মানুষ না থাকলেও চেক করবো ৫ সেকেন্ড পার হয়েছে কিনা
               if (currentPlaybackTime - lastFemaleDetectedTimeRef.current <= 5) {
                   setIsBlurred(true);
                   console.log("Holding Blur (No Faces) for continuity...");
@@ -541,10 +536,10 @@ export default function GlobalPlayer() {
                             setCurrentTime(player.currentTime);
                             if (player.duration > 0) setDuration(player.duration);
                             
-                            // 🚨 [AI SPEED UP] ৩ সেকেন্ডের বদলে ২ সেকেন্ড করা হলো যাতে আরও দ্রুত কাজ করে
+                            // 🚨 [SUPER SPEED AI] এখন এটি প্রতি ১ সেকেন্ড পরপর ভিডিও চেক করবে!
                             if (videoSource && !isAudioMode) {
                                 const currentSec = player.currentTime;
-                                if (Math.abs(currentSec - lastAiCheckTimeRef.current) >= 2 && !isAiProcessingRef.current) {
+                                if (Math.abs(currentSec - lastAiCheckTimeRef.current) >= 1 && !isAiProcessingRef.current) {
                                     lastAiCheckTimeRef.current = currentSec;
                                     runRealTimeAI();
                                 }
@@ -670,7 +665,7 @@ export default function GlobalPlayer() {
                             />
                         </View>
                         
-                        {/* 🚨 Android-এর হার্ডওয়্যার লেয়ার লিমিটেশন বাইপাস! */}
+                        {/* 🚨 Android-এর ব্লার ওভারলে (Optical Illusion) */}
                         {isBlurred && fullFrameUri && !isAudioMode && (
                             <View style={[StyleSheet.absoluteFillObject, { zIndex: 100, overflow: 'hidden' }]}>
                                 <Image 
