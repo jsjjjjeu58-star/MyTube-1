@@ -14,7 +14,7 @@ import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
 // 🚨 [REAL AI INTEGRATION PACKAGES]
-import { captureRef } from 'react-native-view-shot'; 
+import { BlurView } from 'expo-blur';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy'; 
 import { decode } from 'base64-arraybuffer'; 
@@ -44,7 +44,6 @@ const safeSetMuted = (p, isMuted) => { if (!p) return; try { if (typeof p.setMut
 
 export default function GlobalPlayer() {
   const navigation = useNavigation();
-  const videoViewRef = useRef(null); 
   const syncAudioRef = useRef(null); 
   const { locale } = useLanguage(); 
 
@@ -94,18 +93,14 @@ export default function GlobalPlayer() {
   const pendingSeekRef = useRef(null); 
 
   const [isBlurred, setIsBlurred] = useState(false);
-  const [aiVisionImage, setAiVisionImage] = useState(null); 
-  const [fullFrameUri, setFullFrameUri] = useState(null);
+  const [blurOverlayImage, setBlurOverlayImage] = useState(null);
   
   // 🚨 [PRO AI STATES] 
-  const aiCacheRef = useRef({}); // মেমোরি (সেভ রাখার জন্য)
-  const blurExpirationTimeRef = useRef(0); // স্টিকি ব্লার টাইমার
-  const backgroundScanSecRef = useRef(0); // ব্যাকগ্রাউন্ড স্ক্যানিং ইনডেক্স
-  const isRealTimeProcessingRef = useRef(false);
+  const aiCacheRef = useRef({}); // মেমোরি: প্রতি ০.৫ সেকেন্ডের ডেটা সেভ থাকবে
+  const lastDetectedEntityRef = useRef('NONE'); // স্টিকি ব্লার ধরে রাখার জন্য (FEMALE, MALE, or NONE)
   const isBackgroundProcessingRef = useRef(false);
   
   const genderModelRef = useRef(null);
-  const snapshotRef = useRef(null);
 
   useEffect(() => {
     const setupAudio = async () => {
@@ -220,14 +215,11 @@ export default function GlobalPlayer() {
       cachedAudioUrlRef.current = null; pendingSeekRef.current = null;
       
       setIsBlurred(false); 
-      setAiVisionImage(null); 
-      setFullFrameUri(null);
+      setBlurOverlayImage(null);
       
-      // 🚨 [RESET AI CACHE] নতুন ভিডিওর জন্য এআই মেমোরি ক্লিয়ার করা হলো
+      // 🚨 [RESET AI MEMORY] নতুন ভিডিও প্লে হলে এআই মেমোরি একদম রিফ্রেশ করা হলো
       aiCacheRef.current = {};
-      blurExpirationTimeRef.current = 0;
-      backgroundScanSecRef.current = 0;
-      isRealTimeProcessingRef.current = false;
+      lastDetectedEntityRef.current = 'NONE';
       isBackgroundProcessingRef.current = false;
 
       setCurrentTime(0); setBuffered(0); scale.setValue(1); baseScaleRef.current = 1;
@@ -264,20 +256,6 @@ export default function GlobalPlayer() {
 
     return () => { playSub.remove(); audioModeSub.remove(); };
   }, [isFullscreen, streamUrl, player]);
-
-  useEffect(() => {
-      let timeoutId;
-      if (videoSource && player) {
-          timeoutId = setTimeout(async () => {
-              try {
-                  if (resumeTimeRef.current > 0) { safeSeek(player, resumeTimeRef.current); }
-                  safePlay(player); 
-                  if (!isAudioMode && streamModeRef.current === 'separate' && syncAudioRef.current) { safeSeek(syncAudioRef.current, resumeTimeRef.current); syncAudioRef.current.play(); }
-              } catch (e) {}
-          }, 800); 
-      }
-      return () => clearTimeout(timeoutId);
-  }, [videoSource, isAudioMode, player]);
 
   const fetchStreamUrl = async (vidId, targetQuality, fetchId) => {
     try {
@@ -332,17 +310,15 @@ export default function GlobalPlayer() {
       setShowSpeedMenu(false); setShowSettingsMenu(false);
   };
 
-  // 🤖 AI MODEL LOADING
+  // 🤖 -------------------- AI ENGINE START -------------------- 🤖
+  
   const loadGenderModelAsync = async () => {
       if (!genderModelRef.current) {
           try {
               const asset = Asset.fromModule(require('../assets/gender_classification.tflite'));
               await asset.downloadAsync();
-              const localUri = asset.localUri || asset.uri;
-              genderModelRef.current = await loadTensorflowModel({ url: localUri }, []);
-          } catch (e) { 
-              console.log("Model Loading Failure:", e); 
-          }
+              genderModelRef.current = await loadTensorflowModel({ url: asset.localUri || asset.uri }, []);
+          } catch (e) { }
       }
   };
 
@@ -350,13 +326,75 @@ export default function GlobalPlayer() {
       try { return await FaceDetection.detect(uri); } catch (error) { return []; }
   };
 
-  // 🤖 AI CORE PROCESSING (Returns True if Female, False if Male/None)
-  const processFrameForGender = async (uri, isRealTime = false) => {
+  const checkGenderWithTFLite = async (croppedFaceUri) => {
+      try {
+          await loadGenderModelAsync();
+          if (!genderModelRef.current) return 0;
+
+          const inputTensor = genderModelRef.current.inputs?.[0];
+          const MODEL_WIDTH = inputTensor?.shape?.[1] || 224;
+          const MODEL_HEIGHT = inputTensor?.shape?.[2] || 224;
+          const isUint8 = inputTensor?.dataType === 'uint8' || inputTensor?.dataType === 'int8';
+
+          const resizedImage = await ImageManipulator.manipulateAsync(
+              croppedFaceUri, [{ resize: { width: MODEL_WIDTH, height: MODEL_HEIGHT } }], { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+          );
+
+          const base64Data = await FileSystem.readAsStringAsync(resizedImage.uri, { encoding: FileSystem.EncodingType.Base64 });
+          const rawBuffer = new Uint8Array(decode(base64Data));
+          const rawImageData = jpeg.decode(rawBuffer, { useTArray: true });
+
+          const bufferSize = MODEL_WIDTH * MODEL_HEIGHT * 3 * (isUint8 ? 1 : 4);
+          const pureInputBuffer = new ArrayBuffer(bufferSize);
+          const inputData = isUint8 ? new Uint8Array(pureInputBuffer) : new Float32Array(pureInputBuffer);
+
+          let rgbIndex = 0;
+          for (let i = 0; i < rawImageData.data.length; i += 4) {
+              if (isUint8) {
+                  inputData[rgbIndex++] = rawImageData.data[i];     
+                  inputData[rgbIndex++] = rawImageData.data[i + 1]; 
+                  inputData[rgbIndex++] = rawImageData.data[i + 2]; 
+              } else {
+                  inputData[rgbIndex++] = rawImageData.data[i] / 255.0;     
+                  inputData[rgbIndex++] = rawImageData.data[i + 1] / 255.0; 
+                  inputData[rgbIndex++] = rawImageData.data[i + 2] / 255.0; 
+              }
+          }
+
+          const output = await genderModelRef.current.run([pureInputBuffer]);
+          let probability = 0;
+
+          if (output && output.length > 0) {
+              const rawOut = output[0];
+              let outBuffer;
+              if (rawOut instanceof ArrayBuffer) outBuffer = rawOut;
+              else if (rawOut && rawOut.buffer instanceof ArrayBuffer) outBuffer = rawOut.buffer;
+              else outBuffer = new Float32Array(rawOut).buffer;
+
+              const outTensor = genderModelRef.current.outputs?.[0];
+              if (outTensor?.dataType === 'uint8' || outTensor?.dataType === 'int8') {
+                  probability = new Uint8Array(outBuffer)[0] / 255.0;
+              } else {
+                  probability = new Float32Array(outBuffer)[0];
+              }
+          }
+
+          if (typeof probability !== 'number' || isNaN(probability)) probability = 0;
+          return probability;
+          
+      } catch (error) { 
+          return 0; 
+      }
+  };
+
+  // 🚨 [SMART LOGIC 1] রিটার্ন করবে: 'FEMALE', 'MALE', বা 'NONE'
+  const processFrameForGender = async (uri) => {
       try {
           const faces = await detectFacesWithMLKit(uri);
           
           if (faces && faces.length > 0) {
               let hasFemale = false;
+              let hasMale = false;
 
               for (let i = 0; i < faces.length; i++) {
                   const face = faces[i];
@@ -371,159 +409,99 @@ export default function GlobalPlayer() {
                       uri, [{ crop: { originX, originY, width, height } }], { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
                   );
                   
-                  // শুধু রিয়েল-টাইম ফ্রেমের প্রিভিউ দেখাবে
-                  if (isRealTime && i === 0) setAiVisionImage(croppedFace.uri);
+                  const femaleProbability = await checkGenderWithTFLite(croppedFace.uri);
                   
-                  await loadGenderModelAsync();
-                  if (!genderModelRef.current) continue;
-
-                  const inputTensor = genderModelRef.current.inputs?.[0];
-                  const MODEL_WIDTH = inputTensor?.shape?.[1] || 224;
-                  const MODEL_HEIGHT = inputTensor?.shape?.[2] || 224;
-                  const isUint8 = inputTensor?.dataType === 'uint8' || inputTensor?.dataType === 'int8';
-
-                  const resizedImage = await ImageManipulator.manipulateAsync(
-                      croppedFace.uri, [{ resize: { width: MODEL_WIDTH, height: MODEL_HEIGHT } }], { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
-                  );
-
-                  const base64Data = await FileSystem.readAsStringAsync(resizedImage.uri, { encoding: FileSystem.EncodingType.Base64 });
-                  const rawBuffer = new Uint8Array(decode(base64Data));
-                  const rawImageData = jpeg.decode(rawBuffer, { useTArray: true });
-
-                  const bufferSize = MODEL_WIDTH * MODEL_HEIGHT * 3 * (isUint8 ? 1 : 4);
-                  const pureInputBuffer = new ArrayBuffer(bufferSize);
-                  const inputData = isUint8 ? new Uint8Array(pureInputBuffer) : new Float32Array(pureInputBuffer);
-
-                  let rgbIndex = 0;
-                  for (let j = 0; j < rawImageData.data.length; j += 4) {
-                      if (isUint8) {
-                          inputData[rgbIndex++] = rawImageData.data[j];     
-                          inputData[rgbIndex++] = rawImageData.data[j + 1]; 
-                          inputData[rgbIndex++] = rawImageData.data[j + 2]; 
-                      } else {
-                          inputData[rgbIndex++] = rawImageData.data[j] / 255.0;     
-                          inputData[rgbIndex++] = rawImageData.data[j + 1] / 255.0; 
-                          inputData[rgbIndex++] = rawImageData.data[j + 2] / 255.0; 
-                      }
-                  }
-
-                  const output = await genderModelRef.current.run([pureInputBuffer]);
-                  let probability = 0;
-
-                  if (output && output.length > 0) {
-                      const rawOut = output[0];
-                      let outBuffer;
-                      if (rawOut instanceof ArrayBuffer) outBuffer = rawOut;
-                      else if (rawOut && rawOut.buffer instanceof ArrayBuffer) outBuffer = rawOut.buffer;
-                      else outBuffer = new Float32Array(rawOut).buffer;
-
-                      const outTensor = genderModelRef.current.outputs?.[0];
-                      if (outTensor?.dataType === 'uint8' || outTensor?.dataType === 'int8') {
-                          probability = new Uint8Array(outBuffer)[0] / 255.0;
-                      } else {
-                          probability = new Float32Array(outBuffer)[0];
-                      }
-                  }
-
-                  if (typeof probability !== 'number' || isNaN(probability)) probability = 0;
-                  
-                  // 🎯 ৫০% এর বেশি হলে নারী হিসেবে গণ্য করবে
-                  if (probability >= 0.50) {
+                  if (femaleProbability >= 0.50) {
                       hasFemale = true;
-                      break; 
+                  } else {
+                      hasMale = true;
                   }
               }
-              return hasFemale; // true if female, false if male/empty
+              
+              if (hasFemale) return 'FEMALE';
+              if (hasMale) return 'MALE';
           }
-          return false; // No faces found
-      } catch (error) { 
-          return false; 
+          return 'NONE';
+      } catch (error) {
+          return 'NONE';
       }
   };
 
-  // 🚨 [PRO FIX 1] BACKGROUND PRE-LOADER (ভিডিও লোড হওয়ার সাথে সাথে স্ক্যান করবে)
+  // 🚨 [SMART LOGIC 2] THE FUTURE SCANNER WORKER
+  // এটি ভিডিও চলা অবস্থায় বা পজ অবস্থায় সামনের ১৫ সেকেন্ড চুপিসারে স্ক্যান করে মেমোরিতে সেভ করে রাখবে
   useEffect(() => {
-      const backgroundScanner = setInterval(async () => {
-          if (!player || isBackgroundProcessingRef.current || !videoSource) return;
+      const backgroundWorker = setInterval(async () => {
+          if (!player || player.duration <= 0 || isBackgroundProcessingRef.current || !videoSource) return;
           
-          const dur = player.duration;
-          const targetSec = backgroundScanSecRef.current;
-          
-          // পুরো ভিডিও এক এক সেকেন্ড করে স্ক্যান করে মেমোরিতে সেভ করবে
-          if (dur > 0 && targetSec <= dur) {
-              if (aiCacheRef.current[targetSec] === undefined) {
-                  isBackgroundProcessingRef.current = true;
-                  try {
-                      const thumbs = await player.generateThumbnailsAsync([targetSec]);
-                      if (thumbs && thumbs.length > 0) {
-                          const isFemale = await processFrameForGender(thumbs[0].uri, false);
-                          aiCacheRef.current[targetSec] = isFemale;
-                      }
-                  } catch(e) {}
-                  isBackgroundProcessingRef.current = false;
-              }
-              backgroundScanSecRef.current++;
-          }
-      }, 500); // ব্যাকগ্রাউন্ডে খুব দ্রুত কাজ করবে (ল্যাগ ছাড়া)
+          isBackgroundProcessingRef.current = true;
+          try {
+              const currentSec = player.currentTime;
+              // আমরা সময়কে ০.৫ এর স্কেলে ভাঙছি (যেমন: ১.০, ১.৫, ২.০, ২.৫)
+              const startBucket = Math.floor(currentSec * 2) / 2;
+              const endBucket = Math.min(startBucket + 15, Math.floor(player.duration * 2) / 2);
 
-      return () => clearInterval(backgroundScanner);
+              for (let bucket = startBucket; bucket <= endBucket; bucket += 0.5) {
+                  // যদি এই ০.৫ সেকেন্ডের ফ্রেমটি আগে স্ক্যান করা না হয়ে থাকে
+                  if (aiCacheRef.current[bucket] === undefined) {
+                      const thumbs = await player.generateThumbnailsAsync([bucket]);
+                      if (thumbs && thumbs.length > 0) {
+                          const status = await processFrameForGender(thumbs[0].uri);
+                          aiCacheRef.current[bucket] = status;
+                          
+                          // অপটিক্যাল ইলিউশন ব্লারের জন্য ফ্রেম সেভ করে রাখছি যদি ফিমেল হয়
+                          if (status === 'FEMALE') setBlurOverlayImage(thumbs[0].uri);
+                          
+                          console.log(`🤖 AI Scanned future frame [${bucket}s] -> ${status}`);
+                      } else {
+                          aiCacheRef.current[bucket] = 'NONE';
+                      }
+                      break; // ফোন হ্যাং করা ঠেকাতে প্রতিবার শুধু ১টি ফ্রেম চেক করবে
+                  }
+              }
+          } catch(e) {
+          } finally {
+              isBackgroundProcessingRef.current = false;
+          }
+      }, 300); // ব্যাকগ্রাউন্ডে খুব দ্রুত কাজ করবে
+
+      return () => clearInterval(backgroundWorker);
   }, [player, videoSource]);
 
-  // 🚨 [PRO FIX 2 & 3] REAL-TIME CACHE CHECKER AND STICKY LOGIC
+  // 🚨 [SMART LOGIC 3] THE STICKY DISPLAY LOOP
+  // এটি অত্যন্ত ফাস্ট (১০০ মিলি-সেকেন্ড) রেটে শুধু ক্যাশ চেক করে ব্লার অন/অফ করবে
   useEffect(() => {
-      const realTimeChecker = setInterval(async () => {
-          if (!player || isRealTimeProcessingRef.current || isAudioMode || !videoSource) return;
-          
-          const currentSec = Math.floor(player.currentTime);
-          
-          // ১. মেমোরি (Cache) চেক করা
-          let isFemaleDetected = aiCacheRef.current[currentSec];
+      const displayUpdater = setInterval(() => {
+          if (!player || isAudioMode || !videoSource) return;
 
-          // যদি মেমোরিতে না থাকে, তবে তাৎক্ষণিক রিয়েল-টাইমে প্রসেস করবে
-          if (isFemaleDetected === undefined) {
-              isRealTimeProcessingRef.current = true;
-              try {
-                  let uri = null;
-                  if (player.playing && snapshotRef.current) {
-                      uri = await captureRef(snapshotRef, { format: 'jpg', quality: 0.5 });
-                  } else {
-                      const thumbs = await player.generateThumbnailsAsync([currentSec]);
-                      if (thumbs && thumbs.length) uri = thumbs[0].uri;
-                  }
-                  
-                  if (uri) {
-                      setFullFrameUri(uri);
-                      isFemaleDetected = await processFrameForGender(uri, true);
-                      aiCacheRef.current[currentSec] = isFemaleDetected; // সাথে সাথে সেভ করে রাখলো
-                  }
-              } catch(e) {}
-              isRealTimeProcessingRef.current = false;
-          }
+          const currentBucket = Math.floor(player.currentTime * 2) / 2;
+          const aiStatus = aiCacheRef.current[currentBucket];
 
-          // ২. STICKY BLUR LOGIC (টানা ব্লার)
-          if (isFemaleDetected === true) {
-              // মহিলা ডিটেক্ট হলে, বর্তমান সময় থেকে টানা ৪ সেকেন্ডের জন্য ব্লার লক করে দিবে
-              blurExpirationTimeRef.current = Date.now() + 4000;
+          if (aiStatus === 'FEMALE') {
+              // 🔴 মহিলা পাওয়া গেছে, ব্লার লক্ (Lock) করে দাও!
               setIsBlurred(true);
+              lastDetectedEntityRef.current = 'FEMALE';
+          } else if (aiStatus === 'MALE') {
+              // 🟢 শুধু পুরুষ পাওয়া গেছে, এবার ব্লার খুলতে পারো!
+              setIsBlurred(false);
+              lastDetectedEntityRef.current = 'MALE';
           } else {
-              // মহিলা না থাকলে দেখবে ৪ সেকেন্ড পার হয়েছে কিনা
-              if (Date.now() > blurExpirationTimeRef.current) {
-                  // ৪ সেকেন্ড পার হয়ে গেলে এবং শুধু পুরুষ থাকলে ব্লার খুলে দিবে
-                  setIsBlurred(false);
-              } else {
-                  // ৪ সেকেন্ড পার না হলে ব্লার ধরে রাখবে
+              // 'NONE' বা 'undefined' (কেউ নেই বা এখনো স্ক্যান হয়নি)
+              // 🚨 THE STICKY TRICK: আগে যদি মহিলা থেকে থাকে, তবে ব্লার ধরে রাখো! খুলবে না!
+              if (lastDetectedEntityRef.current === 'FEMALE') {
                   setIsBlurred(true);
+              } else {
+                  setIsBlurred(false);
               }
           }
-          
-      }, 300); // প্রতি ৩০০ মিলি-সেকেন্ডে চেক করবে (জিরো-ল্যাগ এক্সপেরিয়েন্স)
+      }, 100); 
 
-      return () => clearInterval(realTimeChecker);
+      return () => clearInterval(displayUpdater);
   }, [player, isAudioMode, videoSource]);
 
-  // Player UI Syncing
+  // 🤖 -------------------- AI ENGINE END -------------------- 🤖
+
   useEffect(() => {
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
         if (isSyncingRef.current) return; 
         isSyncingRef.current = true;
 
@@ -558,6 +536,7 @@ export default function GlobalPlayer() {
                 }
             }
         } catch(e) {}
+
         isSyncingRef.current = false;
     }, 1000);
     return () => clearInterval(interval);
@@ -660,11 +639,11 @@ export default function GlobalPlayer() {
                             />
                         </View>
                         
-                        {/* 🚨 Android Optical Illusion Blur */}
-                        {isBlurred && fullFrameUri && !isAudioMode && (
+                        {/* 🚨 Android Optical Illusion Blur (Hardware Layer Bypass) */}
+                        {isBlurred && blurOverlayImage && !isAudioMode && (
                             <View style={[StyleSheet.absoluteFillObject, { zIndex: 100, overflow: 'hidden' }]}>
                                 <Image 
-                                    source={{ uri: fullFrameUri }} 
+                                    source={{ uri: blurOverlayImage }} 
                                     style={[StyleSheet.absoluteFillObject, { transform: [{ scale: 1.1 }] }]} 
                                     blurRadius={50} 
                                 />
@@ -673,13 +652,6 @@ export default function GlobalPlayer() {
                                     <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold', marginTop: 15 }}>মহিলা শনাক্ত হয়েছে</Text>
                                     <Text style={{ color: '#FFF', fontSize: 12, marginTop: 5 }}>(Censored by AI)</Text>
                                 </View>
-                            </View>
-                        )}
-
-                        {aiVisionImage && isInteractiveFull && (
-                            <View style={styles.debugWindow}>
-                                <Image source={{ uri: aiVisionImage }} style={{ flex: 1, width: '100%', height: '100%' }} resizeMode="contain" />
-                                <Text style={styles.debugText}>🤖 AI VISION</Text>
                             </View>
                         )}
                     </>
@@ -826,7 +798,5 @@ const styles = StyleSheet.create({
   sliderWrapper: { flex: 1, marginHorizontal: 8, justifyContent: 'center', position: 'relative', height: 40 }, customTrackContainer: { position: 'absolute', left: Platform.OS === 'android' ? 15 : 0, right: Platform.OS === 'android' ? 15 : 0, height: 3, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, overflow: 'hidden' }, bufferedBar: { height: '100%', backgroundColor: 'rgba(144, 238, 144, 0.8)', borderRadius: 2 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }, settingsMenu: { width: 250, backgroundColor: '#1A1A1A', borderRadius: 15, padding: 15, elevation: 10 }, modalTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginBottom: 10, textAlign: 'center', borderBottomWidth: 1, borderBottomColor: '#333', paddingBottom: 10 }, menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#333' }, menuIcon: { marginRight: 10 }, menuText: { color: '#FFF', fontSize: 16 },
   fallbackOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 20, zIndex: 30 }, fallbackText: { color: '#FFF', textAlign: 'center', marginVertical: 20, fontSize: 16 }, btn: { backgroundColor: '#FF0000', paddingHorizontal: 25, paddingVertical: 12, borderRadius: 10 }, btnText: { color: '#FFF', fontWeight: 'bold' },
-  miniTouchableArea: { flex: 1, width: '100%', height: '100%', position: 'absolute', zIndex: 50 }, miniControlsRow: { position: 'absolute', top: 5, right: 5, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 15, paddingHorizontal: 5, paddingVertical: 2, alignItems: 'center' }, miniCtrlBtn: { padding: 5, marginHorizontal: 3 },
-  debugWindow: { position: 'absolute', top: 80, right: 20, width: 100, height: 150, backgroundColor: '#000', borderWidth: 2, borderColor: '#FF0000', zIndex: 100, elevation: 10 },
-  debugText: { color: '#FFF', fontSize: 10, fontWeight: 'bold', textAlign: 'center', backgroundColor: '#FF0000', padding: 2 }
+  miniTouchableArea: { flex: 1, width: '100%', height: '100%', position: 'absolute', zIndex: 50 }, miniControlsRow: { position: 'absolute', top: 5, right: 5, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 15, paddingHorizontal: 5, paddingVertical: 2, alignItems: 'center' }, miniCtrlBtn: { padding: 5, marginHorizontal: 3 }
 });
