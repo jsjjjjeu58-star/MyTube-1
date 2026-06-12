@@ -17,7 +17,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
 import { captureRef } from 'react-native-view-shot'; 
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as FileSystem from 'expo-file-system'; 
+// 🚨 [THE MAGIC FIX] - legacy API ইম্পোর্ট করা হলো যাতে আর কোনো deprecation এরর না আসে!
+import * as FileSystem from 'expo-file-system/legacy'; 
 import { decode } from 'base64-arraybuffer'; 
 import * as jpeg from 'jpeg-js';
 import { Asset } from 'expo-asset'; 
@@ -350,8 +351,8 @@ export default function GlobalPlayer() {
               croppedFaceUri, [{ resize: { width: MODEL_SIZE, height: MODEL_SIZE } }], { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
           );
 
-          // 🚨 [THE FINAL FIX] - FileSystem.EncodingType এর বদলে সরাসরি 'base64' স্ট্রিং পাঠানো হলো
-          const base64Data = await FileSystem.readAsStringAsync(resizedImage.uri, { encoding: 'base64' });
+          // 🚨 FileSystem.EncodingType.Base64 পুরোনো API থেকে কাজ করবে
+          const base64Data = await FileSystem.readAsStringAsync(resizedImage.uri, { encoding: FileSystem.EncodingType.Base64 });
           
           const rawBuffer = new Uint8Array(decode(base64Data));
           const rawImageData = jpeg.decode(rawBuffer, { useTArray: true });
@@ -439,6 +440,7 @@ export default function GlobalPlayer() {
                             setCurrentTime(player.currentTime);
                             if (player.duration > 0) setDuration(player.duration);
                             
+                            // 🤖 ৩ সেকেন্ড পরপর এআই চেক 
                             if (videoSource && !isAudioMode && player.playing) {
                                 const currentSec = player.currentTime;
                                 if (Math.abs(currentSec - lastAiCheckTimeRef.current) >= 3 && !isAiProcessingRef.current) {
