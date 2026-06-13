@@ -13,6 +13,9 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import * as WebBrowser from 'expo-web-browser'; 
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
+// 🚨 [THE INTERNET SOLUTION] স্বাধীন ফ্রেম এক্সট্রাক্টর
+import * as VideoThumbnails from 'expo-video-thumbnails';
+
 // 🚨 [REAL AI INTEGRATION PACKAGES]
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy'; 
@@ -50,8 +53,8 @@ export default function GlobalPlayer() {
   
   const scale = useRef(new Animated.Value(1)).current;
   const baseScaleRef = useRef(1);
-  const initialDistanceRef = useRef(null);
   const isZoomingRef = useRef(false);
+  const initialDistanceRef = useRef(null);
   
   const lastTapRef = useRef({ time: 0, side: '' });
   const tapTimeoutRef = useRef(null);
@@ -69,8 +72,7 @@ export default function GlobalPlayer() {
   const [fallbackData, setFallbackData] = useState(null);
 
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(1);
-  const [buffered, setBuffered] = useState(0); 
+  const [duration, setDuration] = useState(0);
   const [isPlayingUI, setIsPlayingUI] = useState(false); 
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef(null);
@@ -87,13 +89,11 @@ export default function GlobalPlayer() {
   const isSyncingRef = useRef(false);
   const pendingSeekRef = useRef(null); 
 
+  // 🚨 [NEW] BACKGROUND SCANNER STATES (For Terminal Map Only)
   const aiDataMapRef = useRef({}); 
   const targetScanSecRef = useRef(0); 
-  const isExtractingRef = useRef(false);
+  const isAiProcessingRef = useRef(false); 
   
-  // 🚨 [NEW] ভিডিও ডিকোডারকে রিল্যাক্স করার জন্য একটি নতুন Ref
-  const hasVideoStartedRef = useRef(false);
-
   const genderModelRef = useRef(null);
 
   useEffect(() => {
@@ -188,12 +188,12 @@ export default function GlobalPlayer() {
       setPlayerState('full');
       setStreamUrl(null); setVideoSource(null); resumeTimeRef.current = 0; 
       
+      // 🚨 স্ক্যানার ম্যাপ রিসেট
       aiDataMapRef.current = {};
       targetScanSecRef.current = 0; 
-      isExtractingRef.current = false;
-      hasVideoStartedRef.current = false; // 🚨 ডিকোডার স্ট্যাটাস রিসেট
+      isAiProcessingRef.current = false;
 
-      setCurrentTime(0); setBuffered(0); scale.setValue(1); baseScaleRef.current = 1;
+      setCurrentTime(0); setDuration(0); scale.setValue(1); baseScaleRef.current = 1;
       triggerControls();
       safeReleaseAudio();
 
@@ -220,6 +220,7 @@ export default function GlobalPlayer() {
     setStreamMode(json.streamType || 'combined'); streamModeRef.current = json.streamType || 'combined';
     setStreamUrl(json.url); setVideoSource(json.url); 
   };
+
 
   // 🤖 -------------------- AI ENGINE START -------------------- 🤖
   
@@ -338,34 +339,38 @@ export default function GlobalPlayer() {
       }
   };
 
-  // 🚨 -------------------- DEADLOCK-FREE EXTRACTION ENGINE -------------------- 🚨
-  
+  // 🚨 [THE INTERNET SOLUTION] সম্পূর্ণ স্বাধীন ব্যাকগ্রাউন্ড স্ক্যানার
   useEffect(() => {
-      const frameScanner = setInterval(async () => {
-          // 🚨 THE FIX: ভিডিও প্লে না হওয়া পর্যন্ত স্ক্যানার শুরু হবে না (Deadlock Prevention)
-          if (!player || player.duration <= 0 || isExtractingRef.current || !videoSource || !hasVideoStartedRef.current) {
-              return;
-          }
+      const bufferScanner = setInterval(async () => {
+          // ভিডিও সোর্স না থাকলে স্ক্যান করবে না
+          if (!videoSource || isAiProcessingRef.current) return;
           
           let targetSec = targetScanSecRef.current;
-          const duration = player.duration;
 
-          if (targetSec > duration) return;
+          // প্লেয়ার রেডি থাকলে ডিউরেশন চেক করবে
+          if (duration > 0 && targetSec > duration) {
+              return; // ভিডিওর শেষ পর্যন্ত ফ্রেম নেওয়া হয়ে গেছে
+          }
 
-          isExtractingRef.current = true;
+          isAiProcessingRef.current = true;
 
           try {
-              // ৩ সেকেন্ডের টাইমআউট দিয়েছি যাতে ইন্টারভালের সাথে জ্যাম না বাঁধে
-              const extractPromise = player.generateThumbnailsAsync([targetSec]);
-              const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 3000));
-              
-              const thumbs = await Promise.race([extractPromise, timeoutPromise]);
+              // 🚨 ভিডিও প্লেয়ারের ওপর নির্ভর না করে সরাসরি URL থেকে ফ্রেম কাটা
+              // time-এর ভ্যালু মিলি-সেকেন্ডে দিতে হয় (তাই 1000 দিয়ে গুণ)
+              const { uri } = await VideoThumbnails.getThumbnailAsync(videoSource, {
+                  time: targetSec * 1000, 
+                  quality: 0.5,
+              });
 
-              if (thumbs && thumbs.length > 0) {
-                  const result = await processFrameForGender(thumbs[0].uri);
+              if (uri) {
+                  // এআই চেক
+                  const result = await processFrameForGender(uri);
+                  
+                  // ম্যাপে সেভ করা
                   aiDataMapRef.current[targetSec] = result;
                   
-                  let terminalLog = `\n--- 📊 AI DATA MAP (Loaded Buffer) ---\n`;
+                  // টার্মিনালে সুন্দর করে প্রিন্ট করা
+                  let terminalLog = `\n--- 📊 AI DATA MAP (Independent Extraction) ---\n`;
                   Object.keys(aiDataMapRef.current)
                       .map(Number)
                       .sort((a,b) => a - b)
@@ -374,23 +379,22 @@ export default function GlobalPlayer() {
                       });
                   console.log(terminalLog);
                   
+                  // সফল হওয়ায় পরবর্তী ৩ সেকেন্ডে চলে গেল
                   targetScanSecRef.current += 3;
-              } else {
-                  console.log(`⚠️ [${targetSec}s] Frame returned empty.`);
               }
-
           } catch(e) {
-              console.log(`⏳ [${targetSec}s] Waiting for video buffer...`);
+              // যদি ফ্রেম না পায় (মানে ভিডিওর ওই অংশ ইন্টারনেট থেকে এখনো লোড হয়নি)
+              // console.log(`⏳ [${targetSec}s] Video chunk not ready yet... Waiting...`);
           } finally {
-              isExtractingRef.current = false;
+              isAiProcessingRef.current = false;
           }
           
-      }, 4000); // 🚨 THE FIX: প্রতি ৪ সেকেন্ডে একবার চেক করবে (ইঞ্জিনকে নিঃশ্বাস নেওয়ার সময় দেওয়া হলো)
+      }, 2000); // প্রতি ২ সেকেন্ডে একবার ট্রাই করবে
 
-      return () => clearInterval(frameScanner);
-  }, [player, videoSource]);
+      return () => clearInterval(bufferScanner);
+  }, [videoSource, duration]);
 
-  // 🚨 -------------------- ENGINE END -------------------- 🚨
+  // 🤖 -------------------- AI ENGINE END -------------------- 🤖
 
 
   useEffect(() => {
@@ -401,21 +405,16 @@ export default function GlobalPlayer() {
         try {
             setIsPlayingUI(player?.playing || false);
             if (player) {
-                // 🚨 ভিডিও প্লে হওয়া শুরু হলে স্ক্যানারকে সিগন্যাল দেওয়া হচ্ছে
-                if (player.playing && !hasVideoStartedRef.current) {
-                    hasVideoStartedRef.current = true;
-                }
-
                 if (player.currentTime >= 0) {
                     setCurrentTime(player.currentTime);
-                    if (player.duration > 0) setDuration(player.duration);
+                    if (player.duration > 0 && duration === 0) setDuration(player.duration);
                 }
             }
         } catch(e) {}
         isSyncingRef.current = false;
     }, 1000);
     return () => clearInterval(videoProgressSync);
-  }, [player, videoSource]);
+  }, [player, videoSource, duration]);
 
   const closePlayer = async () => {
       setPlayerState('hidden'); if (isFullscreen) await toggleFullscreen();
@@ -429,7 +428,6 @@ export default function GlobalPlayer() {
 
   if (playerState === 'hidden') return null;
   const isInteractiveFull = playerState === 'full' || playerState === 'center' || playerState === 'fullscreen';
-  const bufferedWidth = duration > 0 ? `${(buffered / duration) * 100}%` : '0%';
 
   return (
     <Animated.View 
@@ -471,9 +469,6 @@ export default function GlobalPlayer() {
              <View style={styles.bottomBar}>
                 <Text style={styles.timeTextLeft}>{formatTime(currentTime)}</Text>
                 <View style={styles.sliderWrapper}>
-                    <View style={styles.customTrackContainer}>
-                        <View style={[styles.bufferedBar, { width: bufferedWidth }]} />
-                    </View>
                     <Slider style={{ flex: 1, height: 40 }} minimumValue={0} maximumValue={duration} value={currentTime} onValueChange={(v) => setCurrentTime(v)} onSlidingComplete={async (v) => { await seekTo(v); triggerControls(); }} minimumTrackTintColor="#FF0000" maximumTrackTintColor="transparent" thumbTintColor="#FF0000" />
                 </View>
                 <Text style={styles.timeTextRight}>{formatTime(duration)}</Text>
