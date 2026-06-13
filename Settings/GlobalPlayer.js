@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Image, Platform } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Image, Platform, ActivityIndicator } from 'react-native';
 
 // 🚨 [LATEST PACKAGES]
 import { useVideoPlayer, VideoView } from 'expo-video'; 
@@ -91,9 +91,10 @@ export default function GlobalPlayer() {
   const isSyncingRef = useRef(false);
   const pendingSeekRef = useRef(null); 
 
-  // 🚨 [PRO AI STATES - 3 SECOND CHUNK ARCHITECTURE]
+  // 🚨 [PRO AI STATES]
   const [isBlurred, setIsBlurred] = useState(false);
   const [blurOverlayImage, setBlurOverlayImage] = useState(null);
+  const [isAIBuffering, setIsAIBuffering] = useState(true); // AI Scanning Loader
   
   const aiDataMapRef = useRef({}); 
   const backgroundScanSecRef = useRef(0); 
@@ -211,8 +212,8 @@ export default function GlobalPlayer() {
       
       setIsBlurred(false); 
       setBlurOverlayImage(null);
+      setIsAIBuffering(true); // 🚨 নতুন ভিডিও প্লে হলেই AI Buffering অন হবে
       
-      // 🚨 নতুন ভিডিও প্লে হলে ডাটাবেস ক্লিয়ার
       aiDataMapRef.current = {};
       backgroundScanSecRef.current = 0; 
       isAiProcessingRef.current = false;
@@ -436,7 +437,7 @@ export default function GlobalPlayer() {
       }
   };
 
-  // 🚨 [STEP 1 & 2 & 3: BACKGROUND 3-SEC SCANNER & DB SAVER]
+  // 🚨 [STEP 1: SMART BACKGROUND SCANNER]
   useEffect(() => {
       const backgroundScanner = setInterval(async () => {
           if (!player || player.duration <= 0 || isAiProcessingRef.current || !videoSource) return;
@@ -444,16 +445,16 @@ export default function GlobalPlayer() {
           const duration = player.duration;
           const currentPlaybackBlock = Math.floor(player.currentTime / 3) * 3;
 
-          // 🚨 [THE AUTO-SYNC JUMP FIX]
-          // যদি স্ক্যানার প্লেয়ারের চেয়ে পিছিয়ে পড়ে, তবে বর্তমান সময়ে লাফ দেবে
-          if (backgroundScanSecRef.current < currentPlaybackBlock) {
+          // 🎯 যদি এআই বর্তমান সময়ের চেয়ে পিছিয়ে থাকে, তবে সে লাফ দিয়ে বর্তমান ব্লকে চলে আসবে
+          if (aiDataMapRef.current[currentPlaybackBlock] === undefined) {
               backgroundScanSecRef.current = currentPlaybackBlock;
+          } else if (backgroundScanSecRef.current < currentPlaybackBlock) {
+              backgroundScanSecRef.current = currentPlaybackBlock + 3;
           }
 
           let targetSec = backgroundScanSecRef.current;
 
           if (targetSec <= duration) {
-              // আগে স্ক্যান হয়ে থাকলে স্কিপ করবে
               if (aiDataMapRef.current[targetSec] !== undefined) {
                   backgroundScanSecRef.current += 3;
                   return;
@@ -466,7 +467,7 @@ export default function GlobalPlayer() {
                       const result = await processFrameForGender(thumbs[0].uri);
                       
                       aiDataMapRef.current[targetSec] = {
-                          status: result, // 'w', 'm', 'none'
+                          status: result, 
                           uri: thumbs[0].uri 
                       };
                       
@@ -482,25 +483,23 @@ export default function GlobalPlayer() {
                   } else {
                       aiDataMapRef.current[targetSec] = { status: 'none', uri: null };
                   }
-                  // কাজ সফল হোক বা না হোক, সামনে এগিয়ে যাবে আটকে থাকবে না
                   backgroundScanSecRef.current += 3;
                   
               } catch(e) {
-                  // 🚨 [ERROR FIX] ফ্রেম না পেলে আটকে না থেকে 'none' দিয়ে সামনে চলে যাবে
                   aiDataMapRef.current[targetSec] = { status: 'none', uri: null };
                   backgroundScanSecRef.current += 3;
               } finally {
                   isAiProcessingRef.current = false;
               }
           }
-      }, 300); // অতি দ্রুত স্ক্যান করবে
+      }, 300); 
 
       return () => clearInterval(backgroundScanner);
   }, [player, videoSource]);
 
-  // 🚨 [STEP 4: PLAYBACK SYNC & BLUR CONTROLLER]
+  // 🚨 [STEP 2: ZERO-LEAK SYNC & AI BUFFERING]
   useEffect(() => {
-      const displayUpdater = setInterval(async () => {
+      const displayUpdater = setInterval(() => {
           if (!player || isAudioMode || !videoSource) return;
 
           const currentSec = player.currentTime;
@@ -508,14 +507,22 @@ export default function GlobalPlayer() {
           
           const chunkData = aiDataMapRef.current[currentBucket];
 
-          if (chunkData && chunkData.status === 'w') {
-              setIsBlurred(true);
-              setBlurOverlayImage(chunkData.uri);
+          // 🎯 দ্য আল্টিমেট সেফটি: যদি এআই এই ব্লকটি এখনো স্ক্যান না করে থাকে, তবে ভিডিও কালো পর্দা দিয়ে ঢেকে রাখো
+          if (chunkData === undefined) {
+              setIsAIBuffering(true);
           } else {
-              setIsBlurred(false);
+              // 🎯 স্ক্যান হয়ে গেলে কালো পর্দা সরিয়ে ডাটাবেস অনুযায়ী ব্লার বসাও
+              setIsAIBuffering(false);
+              
+              if (chunkData.status === 'w') {
+                  setIsBlurred(true);
+                  setBlurOverlayImage(chunkData.uri);
+              } else {
+                  setIsBlurred(false);
+              }
           }
           
-      }, 200); 
+      }, 100); // প্রতি ১০০ মিলি-সেকেন্ডে নিখুঁতভাবে চেক করবে
 
       return () => clearInterval(displayUpdater);
   }, [player, isAudioMode, videoSource]);
@@ -649,6 +656,7 @@ export default function GlobalPlayer() {
             <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
                 {videoSource ? (
                     <>
+                        {/* 🚨 surfaceType="textureView" */}
                         <View ref={snapshotRef} collapsable={false} style={styles.video}>
                             <VideoView 
                                 player={player} 
@@ -660,7 +668,16 @@ export default function GlobalPlayer() {
                             />
                         </View>
                         
-                        {isBlurred && blurOverlayImage && !isAudioMode && (
+                        {/* 🚨 [THE FIX] AI Buffering Overlay (Cold Start Leak Prevention) */}
+                        {isAIBuffering && !isAudioMode && (
+                            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000', zIndex: 150, justifyContent: 'center', alignItems: 'center' }]}>
+                                <ActivityIndicator size="large" color="#FF3333" />
+                                <Text style={{ color: '#FFF', fontSize: 14, fontWeight: 'bold', marginTop: 10 }}>🤖 AI Scanning Video...</Text>
+                            </View>
+                        )}
+                        
+                        {/* 🚨 Android Optical Illusion Blur */}
+                        {!isAIBuffering && isBlurred && blurOverlayImage && !isAudioMode && (
                             <View style={[StyleSheet.absoluteFillObject, { zIndex: 100, overflow: 'hidden' }]}>
                                 <Image 
                                     source={{ uri: blurOverlayImage }} 
