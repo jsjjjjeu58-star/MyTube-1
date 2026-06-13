@@ -61,6 +61,10 @@ export default function GlobalPlayer() {
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(1);
+  
+  // 🚨 [FIXED] হারানো buffered স্টেটটি ফিরে এসেছে
+  const [buffered, setBuffered] = useState(0); 
+  
   const [isPlayingUI, setIsPlayingUI] = useState(false); 
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef(null);
@@ -77,7 +81,6 @@ export default function GlobalPlayer() {
   const isSyncingRef = useRef(false);
   const pendingSeekRef = useRef(null); 
 
-  // 🚨 [NEW] শুধুমাত্র ফ্রেম কাটার স্ট্যাটাস
   const targetScanSecRef = useRef(0); 
   const isExtractingRef = useRef(false);
 
@@ -173,11 +176,10 @@ export default function GlobalPlayer() {
       setPlayerState('full');
       setStreamUrl(null); setVideoSource(null); resumeTimeRef.current = 0; 
       
-      // 🚨 নতুন ভিডিও শুরু হলে স্ক্যানার রিসেট
       targetScanSecRef.current = 0; 
       isExtractingRef.current = false;
 
-      setCurrentTime(0); scale.setValue(1); baseScaleRef.current = 1;
+      setCurrentTime(0); setBuffered(0); scale.setValue(1); baseScaleRef.current = 1;
       triggerControls();
       safeReleaseAudio();
 
@@ -210,45 +212,35 @@ export default function GlobalPlayer() {
   
   useEffect(() => {
       const frameScanner = setInterval(async () => {
-          // ভিডিও সোর্স না থাকলে বা প্লেয়ার রেডি না থাকলে কাজ করবে না
           if (!player || player.duration <= 0 || isExtractingRef.current || !videoSource) return;
           
           let targetSec = targetScanSecRef.current;
           const duration = player.duration;
 
-          // ভিডিও শেষ হয়ে গেলে স্ক্যান বন্ধ
           if (targetSec > duration) return;
 
           isExtractingRef.current = true;
 
           try {
-              // 🚨 [PROBING THE LOADED BUFFER]
-              // এই ফাংশনটি স্ক্রিনশট নেয় না। এটি সরাসরি মেমোরিতে থাকা (Loaded) ভিডিও থেকে ফ্রেম কেটে আনে।
-              // যদি ভিডিও ওই পর্যন্ত লোড না হয়ে থাকে, তবে ২ সেকেন্ড পর এটি টাইমআউট হয়ে যাবে।
               const extractPromise = player.generateThumbnailsAsync([targetSec]);
               const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 2000));
               
               const thumbs = await Promise.race([extractPromise, timeoutPromise]);
 
               if (thumbs && thumbs.length > 0) {
-                  // ফ্রেম সফলভাবে কাটা হয়েছে
                   console.log(`✅ [${targetSec}s] Frame cut from LOADED VIDEO -> ${thumbs[0].uri}`);
-                  
-                  // সফল হলে পরবর্তী ৩ সেকেন্ডের জন্য এগোবে
                   targetScanSecRef.current += 3;
               } else {
                   console.log(`⚠️ [${targetSec}s] Frame returned empty.`);
               }
 
           } catch(e) {
-              // TIMEOUT - তারমানে ভিডিও এখনো ওই সেকেন্ড পর্যন্ত ইন্টারনেট থেকে লোড (Buffer) হয়নি
               console.log(`⏳ [${targetSec}s] Waiting for video to load...`);
-              // targetScanSecRef বাড়াবো না, পরেরবার আবার একই সেকেন্ডে ট্রাই করবে
           } finally {
               isExtractingRef.current = false;
           }
           
-      }, 1000); // প্রতি ১ সেকেন্ডে চেক করবে নতুন বাফার হলো কিনা
+      }, 1000); 
 
       return () => clearInterval(frameScanner);
   }, [player, videoSource]);
@@ -329,6 +321,9 @@ export default function GlobalPlayer() {
              <View style={styles.bottomBar}>
                 <Text style={styles.timeTextLeft}>{formatTime(currentTime)}</Text>
                 <View style={styles.sliderWrapper}>
+                    <View style={styles.customTrackContainer}>
+                        <View style={[styles.bufferedBar, { width: bufferedWidth }]} />
+                    </View>
                     <Slider style={{ flex: 1, height: 40 }} minimumValue={0} maximumValue={duration} value={currentTime} onValueChange={(v) => setCurrentTime(v)} onSlidingComplete={async (v) => { await seekTo(v); triggerControls(); }} minimumTrackTintColor="#FF0000" maximumTrackTintColor="transparent" thumbTintColor="#FF0000" />
                 </View>
                 <Text style={styles.timeTextRight}>{formatTime(duration)}</Text>
@@ -358,5 +353,5 @@ const styles = StyleSheet.create({
   tapOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', zIndex: 5 }, tapHalf: { flex: 1 }, controls: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   centerRow: { flexDirection: 'row', alignItems: 'center', zIndex: 20 }, bottomBar: { position: 'absolute', bottom: 5, width: '100%', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, zIndex: 20 },
   timeTextLeft: { color: '#FFF', fontSize: 13, fontWeight: 'bold', minWidth: 40, textAlign: 'center' }, timeTextRight: { color: '#FFF', fontSize: 13, fontWeight: 'bold', minWidth: 40, textAlign: 'center' },
-  sliderWrapper: { flex: 1, marginHorizontal: 8, justifyContent: 'center', position: 'relative', height: 40 }, miniTouchableArea: { flex: 1, width: '100%', height: '100%', position: 'absolute', zIndex: 50 }, miniControlsRow: { position: 'absolute', top: 5, right: 5, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 15, paddingHorizontal: 5, paddingVertical: 2, alignItems: 'center' }, miniCtrlBtn: { padding: 5, marginHorizontal: 3 }
+  sliderWrapper: { flex: 1, marginHorizontal: 8, justifyContent: 'center', position: 'relative', height: 40 }, customTrackContainer: { position: 'absolute', left: Platform.OS === 'android' ? 15 : 0, right: Platform.OS === 'android' ? 15 : 0, height: 3, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, overflow: 'hidden' }, bufferedBar: { height: '100%', backgroundColor: 'rgba(144, 238, 144, 0.8)', borderRadius: 2 }, miniTouchableArea: { flex: 1, width: '100%', height: '100%', position: 'absolute', zIndex: 50 }, miniControlsRow: { position: 'absolute', top: 5, right: 5, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 15, paddingHorizontal: 5, paddingVertical: 2, alignItems: 'center' }, miniCtrlBtn: { padding: 5, marginHorizontal: 3 }
 });
