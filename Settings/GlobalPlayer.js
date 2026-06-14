@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, BackHandler, ScrollView, Image } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, BackHandler, ScrollView, Image, Platform } from 'react-native';
 
 // 🚨 [LATEST PACKAGES]
 import { useVideoPlayer, VideoView } from 'expo-video'; 
