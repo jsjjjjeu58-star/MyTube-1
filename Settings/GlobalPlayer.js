@@ -9,6 +9,7 @@ import Slider from '@react-native-community/slider';
 import * as ScreenOrientation from 'expo-screen-orientation'; 
 import * as WebBrowser from 'expo-web-browser'; 
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
+import { BlurView } from 'expo-blur'; // 🚨 [NEW] ব্লার করার জন্য ইমপোর্ট
 
 // 🚨 [REAL AI INTEGRATION PACKAGES]
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -86,7 +87,7 @@ export default function GlobalPlayer() {
   const [isFullscreen, setIsFullscreen] = useState(false); 
   const [videoData, setVideoData] = useState(null);
   const [streamUrl, setStreamUrl] = useState(null);
-  const [lowStreamUrl, setLowStreamUrl] = useState(null); // 🚨
+  const [lowStreamUrl, setLowStreamUrl] = useState(null);
   
   const [videoSource, setVideoSource] = useState(null); 
   const resumeTimeRef = useRef(0); 
@@ -116,12 +117,15 @@ export default function GlobalPlayer() {
   const isSyncingRef = useRef(false);
   const pendingSeekRef = useRef(null); 
 
-  // 🚨 [NEW STATE]: UI-তে স্টোরিবোর্ড দেখানোর জন্য ফ্রেমগুলোর লিস্ট
   const [frameList, setFrameList] = useState([]);
   const aiDataMapRef = useRef({}); 
   const targetScanSecRef = useRef(0); 
   const isAiProcessingRef = useRef(false); 
   const genderModelRef = useRef(null);
+
+  // 🚨 [NEW STATES] একটানা ব্লার করার জন্য লজিক
+  const [isBlurredUI, setIsBlurredUI] = useState(false);
+  const isBlurredRef = useRef(false);
 
   useEffect(() => {
     const setupAudio = async () => {
@@ -201,7 +205,6 @@ export default function GlobalPlayer() {
           return true;
       } else if (playerState === 'center' || playerState === 'full') {
           setPlayerState('mini');
-          
           const state = navigation.getState();
           if (state && state.routes) {
               const routes = state.routes;
@@ -275,7 +278,7 @@ export default function GlobalPlayer() {
       
       setStreamUrl(null);
       setVideoSource(null); 
-      setLowStreamUrl(null); // 🚨
+      setLowStreamUrl(null); 
       resumeTimeRef.current = 0; 
       
       setFallbackData(null);
@@ -287,7 +290,11 @@ export default function GlobalPlayer() {
       aiDataMapRef.current = {};
       targetScanSecRef.current = 0; 
       isAiProcessingRef.current = false;
-      setFrameList([]); // 🚨
+      setFrameList([]); 
+
+      // 🚨 নতুন ভিডিওতে ব্লার রিস্টার্ট করা হচ্ছে
+      setIsBlurredUI(false);
+      isBlurredRef.current = false;
 
       setCurrentTime(0);
       setBuffered(0);
@@ -391,7 +398,7 @@ export default function GlobalPlayer() {
       if (fetchId !== fetchIdRef.current) return;
 
       if (json.success && json.url) {
-          if (json.lowQualityUrl) setLowStreamUrl(json.lowQualityUrl); // 🚨
+          if (json.lowQualityUrl) setLowStreamUrl(json.lowQualityUrl); 
           
           const resQ = parseInt(json.quality) || 720;
           if (reqQ > resQ) {
@@ -467,8 +474,14 @@ export default function GlobalPlayer() {
                   const output = await genderModelRef.current.run([pureInputBuffer]);
                   let probability = output && output.length > 0 ? new Float32Array(output[0])[0] : 0;
                   
-                  if (probability >= 0.50) { hasFemale = true; break; } else { hasMale = true; }
+                  if (probability >= 0.50) { 
+                      hasFemale = true; 
+                  } else { 
+                      hasMale = true; 
+                  }
               }
+              
+              if (hasFemale && hasMale) return 'b'; 
               if (hasFemale) return 'w';
               if (hasMale) return 'm';
           }
@@ -602,6 +615,7 @@ export default function GlobalPlayer() {
       setShowSettingsMenu(false);
   };
 
+  // 🚨 [NEW] Continuous Blur Logic Interval
   useEffect(() => {
     const interval = setInterval(async () => {
         if (isSyncingRef.current) return; 
@@ -631,6 +645,20 @@ export default function GlobalPlayer() {
                 if (!isSlidingRef.current && (player.currentTime > 0 || player.playing)) {
                     setCurrentTime(player.currentTime);
                     if (player.duration > 0) setDuration(player.duration);
+
+                    // 🚨 [MAGIC BLUR LOGIC]: একটানা ব্লার চেক করা
+                    // বর্তমান সময় কোন ৩-সেকেন্ডের ব্লকের আন্ডারে পড়ে, তা বের করা হচ্ছে
+                    const currentBlock = Math.floor(player.currentTime / 3) * 3;
+                    const blockData = aiDataMapRef.current[currentBlock];
+                    
+                    // যদি ব্লকে মহিলা (w) বা উভয় (b) থাকে, তবে ব্লার হবে
+                    const needBlur = blockData && (blockData.gender === 'w' || blockData.gender === 'b');
+
+                    // যদি আগের স্টেটের চেয়ে নতুন স্টেট আলাদা হয়, তবেই রেন্ডার হবে (ফলে মাঝখানে ব্লার কাটবে না)
+                    if (needBlur !== isBlurredRef.current) {
+                        isBlurredRef.current = needBlur;
+                        setIsBlurredUI(needBlur);
+                    }
                 }
             }
 
@@ -653,7 +681,7 @@ export default function GlobalPlayer() {
                 isSyncingRef.current = false;
             }
         }
-    }, 1000);
+    }, 1000); // প্রতি সেকেন্ডে চেক করবে
     return () => clearInterval(interval);
   }, [player, streamMode, isAudioMode, videoSource]);
 
@@ -775,14 +803,28 @@ export default function GlobalPlayer() {
             
             <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
                 {videoSource ? (
-                    <VideoView 
-                        key={videoSource} 
-                        ref={videoViewRef} 
-                        player={player} 
-                        style={styles.video} 
-                        contentFit="contain"
-                        nativeControls={false} 
-                    />
+                    <View style={{ flex: 1, width: '100%', height: '100%' }}>
+                        <VideoView 
+                            key={videoSource} 
+                            ref={videoViewRef} 
+                            player={player} 
+                            style={styles.video} 
+                            contentFit="contain"
+                            nativeControls={false} 
+                        />
+                        
+                        {/* 🚨 [NEW] BLUR OVERLAY (মহিলা থাকলে পুরো স্ক্রিন ব্লার হবে) */}
+                        {isBlurredUI && (
+                            <BlurView intensity={100} tint="dark" style={StyleSheet.absoluteFillObject}>
+                                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                                    <Ionicons name="eye-off-outline" size={60} color="rgba(255,255,255,0.5)" />
+                                    <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 16, marginTop: 10, fontWeight: 'bold' }}>
+                                        AI Censored (Female Detected)
+                                    </Text>
+                                </View>
+                            </BlurView>
+                        )}
+                    </View>
                 ) : null}
             </Animated.View>
 
@@ -840,7 +882,6 @@ export default function GlobalPlayer() {
 
              <View style={styles.bottomBarWrapper} pointerEvents="box-none">
                 
-                {/* 🚨 [NEW] STORYBOARD GALLERY */}
                 {frameList.length > 0 && (
                     <ScrollView 
                         horizontal 
@@ -859,8 +900,15 @@ export default function GlobalPlayer() {
                                     <Text style={styles.frameTimeText}>{formatTime(frame.time)}</Text>
                                 </View>
                                 {frame.gender !== 'none' && (
-                                    <View style={[styles.badge, frame.gender === 'w' ? styles.badgeW : styles.badgeM]}>
-                                        <Text style={styles.badgeText}>{frame.gender === 'w' ? 'W' : 'M'}</Text>
+                                    <View style={[
+                                        styles.badge, 
+                                        frame.gender === 'w' ? styles.badgeW : 
+                                        frame.gender === 'm' ? styles.badgeM : 
+                                        styles.badgeBoth 
+                                    ]}>
+                                        <Text style={styles.badgeText}>
+                                            {frame.gender === 'w' ? 'W' : frame.gender === 'm' ? 'M' : 'W+M'}
+                                        </Text>
                                     </View>
                                 )}
                             </TouchableOpacity>
@@ -1051,15 +1099,16 @@ const styles = StyleSheet.create({
   bottomBarWrapper: { position: 'absolute', bottom: 5, width: '100%', zIndex: 20, flexDirection: 'column' },
   bottomBar: { width: '100%', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15 },
   
-  // 🚨 [NEW] Storyboard Styles
   storyboardContainer: { marginBottom: 5, height: 75, width: '100%' },
   frameItem: { width: 100, height: 60, marginRight: 8, borderRadius: 8, overflow: 'hidden', backgroundColor: '#333', borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', position: 'relative' },
   frameImg: { width: '100%', height: '100%', resizeMode: 'cover' },
   frameTimeBox: { position: 'absolute', bottom: 2, right: 4, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 },
   frameTimeText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
+  
   badge: { position: 'absolute', top: 2, left: 4, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, elevation: 5 },
-  badgeW: { backgroundColor: '#FF1493' }, // পিংক কালার (Female)
-  badgeM: { backgroundColor: '#1E90FF' }, // ব্লু কালার (Male)
+  badgeW: { backgroundColor: '#FF1493' }, 
+  badgeM: { backgroundColor: '#1E90FF' }, 
+  badgeBoth: { backgroundColor: '#8A2BE2' }, 
   badgeText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
 
   timeTextLeft: { color: '#FFF', fontSize: 13, fontWeight: 'bold', minWidth: 40, textAlign: 'center' },
