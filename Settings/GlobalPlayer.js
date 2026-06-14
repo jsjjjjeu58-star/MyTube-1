@@ -9,7 +9,7 @@ import Slider from '@react-native-community/slider';
 import * as ScreenOrientation from 'expo-screen-orientation'; 
 import * as WebBrowser from 'expo-web-browser'; 
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
-import { BlurView } from 'expo-blur'; // 🚨 [NEW] ব্লার করার জন্য ইমপোর্ট
+import { BlurView } from 'expo-blur'; 
 
 // 🚨 [REAL AI INTEGRATION PACKAGES]
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -123,7 +123,7 @@ export default function GlobalPlayer() {
   const isAiProcessingRef = useRef(false); 
   const genderModelRef = useRef(null);
 
-  // 🚨 [NEW STATES] একটানা ব্লার করার জন্য লজিক
+  // 🚨 [Continuous Blur Logic States]
   const [isBlurredUI, setIsBlurredUI] = useState(false);
   const isBlurredRef = useRef(false);
 
@@ -292,7 +292,7 @@ export default function GlobalPlayer() {
       isAiProcessingRef.current = false;
       setFrameList([]); 
 
-      // 🚨 নতুন ভিডিওতে ব্লার রিস্টার্ট করা হচ্ছে
+      // Reset Blur
       setIsBlurredUI(false);
       isBlurredRef.current = false;
 
@@ -447,13 +447,16 @@ export default function GlobalPlayer() {
               for (let i = 0; i < faces.length; i++) {
                   const face = faces[i];
                   const box = face.frame || face.bounds || {}; 
-                  let originX = Math.floor(Math.max(0, box.left ?? box.x ?? box.originX ?? 0));
-                  let originY = Math.floor(Math.max(0, box.top ?? box.y ?? box.originY ?? 0));
-                  let width = Math.floor(Math.max(10, box.width ?? 0));
-                  let height = Math.floor(Math.max(10, box.height ?? 0));
+                  
+                  // 🚨 [FIXED] Padding added for better hair and jawline detection
+                  let padding = 20; 
+                  let originX = Math.floor(Math.max(0, (box.left ?? box.x ?? box.originX ?? 0) - padding / 2));
+                  let originY = Math.floor(Math.max(0, (box.top ?? box.y ?? box.originY ?? 0) - padding));
+                  let width = Math.floor(Math.max(10, (box.width ?? 0) + padding));
+                  let height = Math.floor(Math.max(10, (box.height ?? 0) + padding * 1.5)); 
                   
                   const croppedFace = await ImageManipulator.manipulateAsync(
-                      uri, [{ crop: { originX, originY, width, height } }], { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+                      uri, [{ crop: { originX, originY, width, height } }], { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
                   );
                   
                   await loadGenderModelAsync();
@@ -465,16 +468,17 @@ export default function GlobalPlayer() {
                   const inputData = new Float32Array(pureInputBuffer);
 
                   let rgbIndex = 0;
-                  for (let i = 0; i < rawImageData.data.length; i += 4) {
-                      inputData[rgbIndex++] = rawImageData.data[i] / 255.0;     
-                      inputData[rgbIndex++] = rawImageData.data[i + 1] / 255.0; 
-                      inputData[rgbIndex++] = rawImageData.data[i + 2] / 255.0; 
+                  for (let j = 0; j < rawImageData.data.length; j += 4) {
+                      inputData[rgbIndex++] = rawImageData.data[j] / 255.0;     
+                      inputData[rgbIndex++] = rawImageData.data[j + 1] / 255.0; 
+                      inputData[rgbIndex++] = rawImageData.data[j + 2] / 255.0; 
                   }
 
                   const output = await genderModelRef.current.run([pureInputBuffer]);
                   let probability = output && output.length > 0 ? new Float32Array(output[0])[0] : 0;
                   
-                  if (probability >= 0.50) { 
+                  // 🚨 [FIXED] Sensitivity lowered to 0.35
+                  if (probability >= 0.35) { 
                       hasFemale = true; 
                   } else { 
                       hasMale = true; 
@@ -615,7 +619,7 @@ export default function GlobalPlayer() {
       setShowSettingsMenu(false);
   };
 
-  // 🚨 [NEW] Continuous Blur Logic Interval
+  // 🚨 [Continuous Blur Logic Interval]
   useEffect(() => {
     const interval = setInterval(async () => {
         if (isSyncingRef.current) return; 
@@ -647,14 +651,11 @@ export default function GlobalPlayer() {
                     if (player.duration > 0) setDuration(player.duration);
 
                     // 🚨 [MAGIC BLUR LOGIC]: একটানা ব্লার চেক করা
-                    // বর্তমান সময় কোন ৩-সেকেন্ডের ব্লকের আন্ডারে পড়ে, তা বের করা হচ্ছে
                     const currentBlock = Math.floor(player.currentTime / 3) * 3;
                     const blockData = aiDataMapRef.current[currentBlock];
                     
-                    // যদি ব্লকে মহিলা (w) বা উভয় (b) থাকে, তবে ব্লার হবে
                     const needBlur = blockData && (blockData.gender === 'w' || blockData.gender === 'b');
 
-                    // যদি আগের স্টেটের চেয়ে নতুন স্টেট আলাদা হয়, তবেই রেন্ডার হবে (ফলে মাঝখানে ব্লার কাটবে না)
                     if (needBlur !== isBlurredRef.current) {
                         isBlurredRef.current = needBlur;
                         setIsBlurredUI(needBlur);
@@ -681,7 +682,7 @@ export default function GlobalPlayer() {
                 isSyncingRef.current = false;
             }
         }
-    }, 1000); // প্রতি সেকেন্ডে চেক করবে
+    }, 1000); 
     return () => clearInterval(interval);
   }, [player, streamMode, isAudioMode, videoSource]);
 
@@ -813,7 +814,7 @@ export default function GlobalPlayer() {
                             nativeControls={false} 
                         />
                         
-                        {/* 🚨 [NEW] BLUR OVERLAY (মহিলা থাকলে পুরো স্ক্রিন ব্লার হবে) */}
+                        {/* 🚨 [NEW] BLUR OVERLAY (একটানা ব্লার) */}
                         {isBlurredUI && (
                             <BlurView intensity={100} tint="dark" style={StyleSheet.absoluteFillObject}>
                                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -882,6 +883,7 @@ export default function GlobalPlayer() {
 
              <View style={styles.bottomBarWrapper} pointerEvents="box-none">
                 
+                {/* 🚨 STORYBOARD GALLERY */}
                 {frameList.length > 0 && (
                     <ScrollView 
                         horizontal 
@@ -899,6 +901,7 @@ export default function GlobalPlayer() {
                                 <View style={styles.frameTimeBox}>
                                     <Text style={styles.frameTimeText}>{formatTime(frame.time)}</Text>
                                 </View>
+                                {/* 🚨 Updated Badges for W, M and W+M */}
                                 {frame.gender !== 'none' && (
                                     <View style={[
                                         styles.badge, 
