@@ -1,28 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Platform } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, BackHandler } from 'react-native';
 
 // 🚨 [LATEST PACKAGES]
 import { useVideoPlayer, VideoView } from 'expo-video'; 
-import { createAudioPlayer, setAudioModeAsync } from 'expo-audio'; 
+import { setAudioModeAsync } from 'expo-audio'; 
 import { Ionicons } from '@expo/vector-icons';
 import { DeviceEventEmitter } from 'react-native';
-import { useLanguage } from '../LanguageContext';
 import { useNavigation } from '@react-navigation/native';
 import Slider from '@react-native-community/slider';
 import * as ScreenOrientation from 'expo-screen-orientation'; 
-import * as WebBrowser from 'expo-web-browser'; 
-import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
 // 🚨 [REAL AI INTEGRATION PACKAGES]
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as FileSystem from 'expo-file-system/legacy'; 
+import * as FileSystem from 'expo-file-system/legacy'; // 🚨 Legacy Import Maintained
 import { decode } from 'base64-arraybuffer'; 
 import * as jpeg from 'jpeg-js';
 import { Asset } from 'expo-asset'; 
 import FaceDetection from '@react-native-ml-kit/face-detection';
 import { loadTensorflowModel } from 'react-native-fast-tflite';
 
-LogBox.ignoreLogs(['Video component', 'expo-audio', 'expo-video', 'InteractionManager', 'SafeAreaView']);
+LogBox.ignoreLogs(['Video component']);
 
 const windowDim = Dimensions.get('window');
 const PORTRAIT_WIDTH = Math.min(windowDim.width, windowDim.height);
@@ -35,60 +32,36 @@ const MY_API_SERVER = "http://127.0.0.1:10000";
 
 const safePlay = (p) => { try { if (p && typeof p.play === 'function') p.play(); } catch(e){} };
 const safePause = (p) => { try { if (p && typeof p.pause === 'function') p.pause(); } catch(e){} };
-const safeSeek = (p, targetSec) => { if (!p) return; try { if (typeof p.seekTo === 'function') p.seekTo(targetSec); else p.currentTime = targetSec; } catch (e) {} };
-const safeSetRate = (p, rate) => { if (!p) return; try { if (typeof p.setPlaybackRate === 'function') p.setPlaybackRate(rate); else p.playbackRate = rate; } catch (e) {} };
-const safeSetMuted = (p, isMuted) => { if (!p) return; try { if (typeof p.setMuted === 'function') p.setMuted(isMuted); else p.muted = isMuted; } catch(e) {} };
+const safeSeek = (p, targetSec) => { if (!p) return; try { p.seekTo(targetSec); } catch (e) {} };
 
 export default function GlobalPlayer() {
   const navigation = useNavigation();
-  const syncAudioRef = useRef(null); 
-  const { locale } = useLanguage(); 
 
   const currentVideoIdRef = useRef(null);
   const fetchIdRef = useRef(0);
-  
   const scale = useRef(new Animated.Value(1)).current;
-  const baseScaleRef = useRef(1);
-  const isZoomingRef = useRef(false);
-  const initialDistanceRef = useRef(null);
-  
-  const lastTapRef = useRef({ time: 0, side: '' });
-  const tapTimeoutRef = useRef(null);
-  const isSlidingRef = useRef(false); 
 
   const [playerState, setPlayerState] = useState('hidden'); 
   const [isFullscreen, setIsFullscreen] = useState(false); 
-  const [videoData, setVideoData] = useState(null);
   const [streamUrl, setStreamUrl] = useState(null);
   const [videoSource, setVideoSource] = useState(null); 
   
-  const [storyboardUrlTemplate, setStoryboardUrlTemplate] = useState(null);
-
-  const [streamMode, setStreamMode] = useState('combined');
-  const [isAudioMode, setIsAudioMode] = useState(false);
-  const [fallbackData, setFallbackData] = useState(null);
+  // 🚨 টারমাক্সের জন্য 144p এর লিংক
+  const [lowStreamUrl, setLowStreamUrl] = useState(null);
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlayingUI, setIsPlayingUI] = useState(false); 
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef(null);
-  
-  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
-  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-  const [currentSpeed, setCurrentSpeed] = useState(1.0);
-  
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
 
-  const isAudioModeRef = useRef(false);
-  const streamModeRef = useRef('combined');
   const isSyncingRef = useRef(false);
-  const pendingSeekRef = useRef(null); 
 
+  // 🚨 AI ডেটা ম্যাপে এখন ফ্রেমের সাইজও থাকবে
   const aiDataMapRef = useRef({}); 
   const targetScanSecRef = useRef(0); 
   const isAiProcessingRef = useRef(false); 
-  
   const genderModelRef = useRef(null);
 
   useEffect(() => {
@@ -98,22 +71,9 @@ export default function GlobalPlayer() {
     setupAudio();
   }, []);
 
-  const safeReleaseAudio = () => {
-      if (syncAudioRef.current) { 
-          try { syncAudioRef.current.release(); } catch(e) {} 
-          syncAudioRef.current = null; 
-      }
-  };
-
   const player = useVideoPlayer(videoSource, (p) => {
     if (!videoSource) return; 
     try { p.loop = false; } catch(e) {}
-    safeSetRate(p, currentSpeed);
-    if (streamModeRef.current === 'separate' && !isAudioModeRef.current) {
-        safeSetMuted(p, true); 
-    } else {
-        safeSetMuted(p, false);
-    }
     safePlay(p);
   });
 
@@ -126,11 +86,10 @@ export default function GlobalPlayer() {
   useEffect(() => {
     const unsubscribe = navigation.addListener('state', (e) => {
       if (!e.data.state) return;
-      const routes = e.data.state.routes;
-      const currentRoute = routes[routes.length - 1].name;
+      const currentRoute = e.data.state.routes[e.data.state.routes.length - 1].name;
       if (currentRoute !== 'Player' && currentRoute !== 'PlayerScreen') {
           setPlayerState((prev) => {
-              if (prev === 'full' || prev === 'center' || prev === 'fullscreen') {
+              if (prev === 'full' || prev === 'fullscreen') {
                   if (isFullscreen) { ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP); setIsFullscreen(false); }
                   return 'mini';
               }
@@ -141,39 +100,21 @@ export default function GlobalPlayer() {
     return unsubscribe;
   }, [navigation, isFullscreen]);
 
-  const handleSmartBack = () => {
-      if (playerState === 'fullscreen') {
-          toggleFullscreen(); return true;
-      } else if (playerState === 'center' || playerState === 'full') {
-          setPlayerState('mini');
-          navigation.navigate('Home'); return true;
-      }
-      return false;
-  };
-
-  useEffect(() => {
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', handleSmartBack);
-    return () => backHandler.remove();
-  }, [playerState, navigation, isFullscreen]);
-
   const toggleFullscreen = async () => {
     try {
         if (isFullscreen) {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-            setIsFullscreen(false); setPlayerState('full'); scale.setValue(1); baseScaleRef.current = 1;
+            setIsFullscreen(false); setPlayerState('full'); scale.setValue(1); 
         } else {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-            setIsFullscreen(true); setPlayerState('fullscreen'); scale.setValue(1); baseScaleRef.current = 1;
+            setIsFullscreen(true); setPlayerState('fullscreen'); scale.setValue(1); 
         }
     } catch (error) {}
   };
 
   const seekTo = async (newTime) => {
       setCurrentTime(newTime); 
-      try {
-          safeSeek(player, newTime); 
-          if (!isAudioModeRef.current && streamModeRef.current === 'separate' && syncAudioRef.current) safeSeek(syncAudioRef.current, newTime);
-      } catch (error) {}
+      safeSeek(player, newTime); 
   };
 
   useEffect(() => {
@@ -184,18 +125,15 @@ export default function GlobalPlayer() {
 
       fetchIdRef.current = Date.now();
       currentVideoIdRef.current = data.videoId;
-      setVideoData(data.videoData);
       setPlayerState('full');
-      setStreamUrl(null); setVideoSource(null); 
-      setStoryboardUrlTemplate(null);
+      setStreamUrl(null); setVideoSource(null); setLowStreamUrl(null);
       
       aiDataMapRef.current = {};
       targetScanSecRef.current = 0; 
       isAiProcessingRef.current = false;
 
-      setCurrentTime(0); setDuration(0); scale.setValue(1); baseScaleRef.current = 1;
+      setCurrentTime(0); setDuration(0); scale.setValue(1); 
       triggerControls();
-      safeReleaseAudio();
 
       const targetQuality = global.appSettings?.normalVideo || '720p';
       fetchStreamUrl(data.videoId, targetQuality, fetchIdRef.current);
@@ -204,7 +142,6 @@ export default function GlobalPlayer() {
     return () => { playSub.remove(); };
   }, [isFullscreen, streamUrl, player]);
 
-  // 🚨 [RESTORED] ভিডিও কোয়ালিটি চেঞ্জ করার লজিক ঠিক করে দেওয়া হলো
   const fetchStreamUrl = async (vidId, targetQuality, fetchId) => {
     try {
       const qStr = (targetQuality || '720p').toString().toUpperCase();
@@ -216,22 +153,15 @@ export default function GlobalPlayer() {
 
       const res = await fetch(`${MY_API_SERVER}/api/extract?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${vidId}`)}&quality=${reqQ}&action=play`);
       const json = await res.json();
+      
       if (fetchId !== fetchIdRef.current) return;
       if (json.success && json.url) {
-          if (json.storyboardUrl) {
-              setStoryboardUrlTemplate(json.storyboardUrl);
-          }
-          startPlayback(json);
+          if (json.lowQualityUrl) setLowStreamUrl(json.lowQualityUrl);
+          setStreamUrl(json.url); 
+          setVideoSource(json.url); 
       }
     } catch(e) {}
   };
-
-  const startPlayback = async (json) => {
-    setStreamMode(json.streamType || 'combined'); streamModeRef.current = json.streamType || 'combined';
-    setStreamUrl(json.url); 
-    setVideoSource(json.url); 
-  };
-
 
   // 🤖 -------------------- AI ENGINE START -------------------- 🤖
   
@@ -245,83 +175,15 @@ export default function GlobalPlayer() {
       }
   };
 
-  const detectFacesWithMLKit = async (uri) => {
-      try { return await FaceDetection.detect(uri); } catch (error) { return []; }
-  };
-
-  const checkGenderWithTFLite = async (croppedFaceUri) => {
-      try {
-          await loadGenderModelAsync();
-          if (!genderModelRef.current) return 0;
-
-          const inputTensor = genderModelRef.current.inputs?.[0];
-          const MODEL_WIDTH = inputTensor?.shape?.[1] || 224;
-          const MODEL_HEIGHT = inputTensor?.shape?.[2] || 224;
-          const isUint8 = inputTensor?.dataType === 'uint8' || inputTensor?.dataType === 'int8';
-
-          const resizedImage = await ImageManipulator.manipulateAsync(
-              croppedFaceUri, [{ resize: { width: MODEL_WIDTH, height: MODEL_HEIGHT } }], { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
-          );
-
-          const base64Data = await FileSystem.readAsStringAsync(resizedImage.uri, { encoding: FileSystem.EncodingType.Base64 });
-          const rawBuffer = new Uint8Array(decode(base64Data));
-          const rawImageData = jpeg.decode(rawBuffer, { useTArray: true });
-
-          const bufferSize = MODEL_WIDTH * MODEL_HEIGHT * 3 * (isUint8 ? 1 : 4);
-          const pureInputBuffer = new ArrayBuffer(bufferSize);
-          const inputData = isUint8 ? new Uint8Array(pureInputBuffer) : new Float32Array(pureInputBuffer);
-
-          let rgbIndex = 0;
-          for (let i = 0; i < rawImageData.data.length; i += 4) {
-              if (isUint8) {
-                  inputData[rgbIndex++] = rawImageData.data[i];     
-                  inputData[rgbIndex++] = rawImageData.data[i + 1]; 
-                  inputData[rgbIndex++] = rawImageData.data[i + 2]; 
-              } else {
-                  inputData[rgbIndex++] = rawImageData.data[i] / 255.0;     
-                  inputData[rgbIndex++] = rawImageData.data[i + 1] / 255.0; 
-                  inputData[rgbIndex++] = rawImageData.data[i + 2] / 255.0; 
-              }
-          }
-
-          const output = await genderModelRef.current.run([pureInputBuffer]);
-          let probability = 0;
-
-          if (output && output.length > 0) {
-              const rawOut = output[0];
-              let outBuffer;
-              if (rawOut instanceof ArrayBuffer) outBuffer = rawOut;
-              else if (rawOut && rawOut.buffer instanceof ArrayBuffer) outBuffer = rawOut.buffer;
-              else outBuffer = new Float32Array(rawOut).buffer;
-
-              const outTensor = genderModelRef.current.outputs?.[0];
-              if (outTensor?.dataType === 'uint8' || outTensor?.dataType === 'int8') {
-                  probability = new Uint8Array(outBuffer)[0] / 255.0;
-              } else {
-                  probability = new Float32Array(outBuffer)[0];
-              }
-          }
-
-          if (typeof probability !== 'number' || isNaN(probability)) probability = 0;
-          return probability;
-          
-      } catch (error) { 
-          return 0; 
-      }
-  };
-
   const processFrameForGender = async (uri) => {
       try {
-          const faces = await detectFacesWithMLKit(uri);
-          
+          const faces = await FaceDetection.detect(uri);
           if (faces && faces.length > 0) {
-              let hasFemale = false;
-              let hasMale = false;
+              let hasFemale = false; let hasMale = false;
 
               for (let i = 0; i < faces.length; i++) {
                   const face = faces[i];
                   const box = face.frame || face.bounds || {}; 
-                  
                   let originX = Math.floor(Math.max(0, box.left ?? box.x ?? box.originX ?? 0));
                   let originY = Math.floor(Math.max(0, box.top ?? box.y ?? box.originY ?? 0));
                   let width = Math.floor(Math.max(10, box.width ?? 0));
@@ -331,34 +193,34 @@ export default function GlobalPlayer() {
                       uri, [{ crop: { originX, originY, width, height } }], { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
                   );
                   
-                  const femaleProbability = await checkGenderWithTFLite(croppedFace.uri);
-                  
-                  if (femaleProbability >= 0.50) {
-                      hasFemale = true;
-                      break; 
-                  } else {
-                      hasMale = true;
+                  await loadGenderModelAsync();
+                  const base64Data = await FileSystem.readAsStringAsync(croppedFace.uri, { encoding: FileSystem.EncodingType.Base64 });
+                  const rawBuffer = new Uint8Array(decode(base64Data));
+                  const rawImageData = jpeg.decode(rawBuffer, { useTArray: true });
+
+                  const pureInputBuffer = new ArrayBuffer(224 * 224 * 3 * 4);
+                  const inputData = new Float32Array(pureInputBuffer);
+
+                  let rgbIndex = 0;
+                  for (let i = 0; i < rawImageData.data.length; i += 4) {
+                      inputData[rgbIndex++] = rawImageData.data[i] / 255.0;     
+                      inputData[rgbIndex++] = rawImageData.data[i + 1] / 255.0; 
+                      inputData[rgbIndex++] = rawImageData.data[i + 2] / 255.0; 
                   }
+
+                  const output = await genderModelRef.current.run([pureInputBuffer]);
+                  let probability = output && output.length > 0 ? new Float32Array(output[0])[0] : 0;
+                  
+                  if (probability >= 0.50) { hasFemale = true; break; } else { hasMale = true; }
               }
-              
               if (hasFemale) return 'w';
               if (hasMale) return 'm';
           }
           return 'none';
-      } catch (error) {
-          return 'none';
-      }
+      } catch (error) { return 'none'; }
   };
 
-  // 🚨 [THE ZERO-DATA CACHED SPRITE SOLUTION]
-  const SB_COLS = 5;
-  const SB_ROWS = 5;
-  const SB_FRAME_W = 160;
-  const SB_FRAME_H = 90;
-  const SB_INTERVAL = 2; 
-  const SB_FRAMES_PER_CHUNK = SB_COLS * SB_ROWS; 
-  const SB_CHUNK_DURATION = SB_FRAMES_PER_CHUNK * SB_INTERVAL; 
-
+  // 🚨 [FULL VIDEO SCANNER: WITH SIZE MEASUREMENT]
   useEffect(() => {
       let isQueueActive = true;
 
@@ -373,97 +235,85 @@ export default function GlobalPlayer() {
 
           console.log("⏸️ Video started! Giving player 2s to buffer...");
           await new Promise(r => setTimeout(r, 2000));
+          console.log("🚀 AI Scanner Engine Started for the ENTIRE VIDEO...");
 
           while (isQueueActive) {
-              if (!storyboardUrlTemplate || !videoSource) {
+              if (!lowStreamUrl || !videoSource) {
                   await new Promise(r => setTimeout(r, 1000));
                   continue;
               }
 
               let targetSec = targetScanSecRef.current;
-              const currentPlaybackSec = player ? player.currentTime : 0;
               const vDuration = player ? player.duration : 0;
 
+              // ভিডিও স্ক্যানিং শেষ হয়ে গেলে চুপ করে বসে থাকবে
               if (vDuration > 0 && targetSec > vDuration) {
-                  await new Promise(r => setTimeout(r, 2000));
-                  continue;
-              }
-
-              if (targetSec > currentPlaybackSec + 15) {
-                  await new Promise(r => setTimeout(r, 1000));
+                  await new Promise(r => setTimeout(r, 5000));
                   continue;
               }
 
               if (aiDataMapRef.current[targetSec] !== undefined) {
-                  targetScanSecRef.current += SB_INTERVAL;
+                  targetScanSecRef.current += 3;
                   continue;
               }
 
               isAiProcessingRef.current = true;
               try {
-                  const chunkNumber = Math.floor(targetSec / SB_CHUNK_DURATION); 
-                  const timeInChunk = targetSec % SB_CHUNK_DURATION; 
-                  const indexInChunk = Math.floor(timeInChunk / SB_INTERVAL); 
-                  
-                  const col = indexInChunk % SB_COLS; 
-                  const row = Math.floor(indexInChunk / SB_COLS); 
-                  
-                  const cropX = col * SB_FRAME_W;
-                  const cropY = row * SB_FRAME_H;
-                  
-                  const currentGridUrl = storyboardUrlTemplate.replace('$M', chunkNumber).replace('$L', '0').replace('$N', '0');
+                  const response = await fetch(`${MY_API_SERVER}/api/get-frame?url=${encodeURIComponent(lowStreamUrl)}&time=${targetSec}`);
+                  const data = await response.json();
 
-                  const localChunkPath = `${FileSystem.cacheDirectory}sb_chunk_${chunkNumber}.jpg`;
-                  const chunkInfo = await FileSystem.getInfoAsync(localChunkPath);
+                  if (data.success && data.frameUrl) {
+                      
+                      // 🚨 ১. ফ্রেম ডাউনলোড করে সাইজ বের করা
+                      const tempLocalPath = `${FileSystem.cacheDirectory}temp_frame_${targetSec}.jpg`;
+                      await FileSystem.downloadAsync(data.frameUrl, tempLocalPath);
+                      const fileInfo = await FileSystem.getInfoAsync(tempLocalPath);
+                      
+                      let sizeKB = "0.00";
+                      if (fileInfo.exists) {
+                          sizeKB = (fileInfo.size / 1024).toFixed(2); // বাইট থেকে কিলোবাইটে কনভার্ট
+                      }
 
-                  if (!chunkInfo.exists) {
-                      console.log(`📥 Downloading Sprite Chunk ${chunkNumber} ONCE...`);
-                      await FileSystem.downloadAsync(currentGridUrl, localChunkPath);
-                  }
-
-                  const croppedFrame = await ImageManipulator.manipulateAsync(
-                      localChunkPath, 
-                      [{ crop: { originX: cropX, originY: cropY, width: SB_FRAME_W, height: SB_FRAME_H } }], 
-                      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
-                  );
-
-                  const result = await processFrameForGender(croppedFrame.uri);
-                  aiDataMapRef.current[targetSec] = result;
-                  
-                  let terminalLog = `\n--- 📊 AI DATA MAP (Local Cached Sprite) ---\n`;
-                  terminalLog += `Target: ${targetSec}s | Image Chunk: ${chunkNumber} | Cut Pos: (X:${cropX}, Y:${cropY})\n`;
-                  Object.keys(aiDataMapRef.current)
-                      .map(Number)
-                      .sort((a,b) => a - b)
-                      .forEach(timeKey => {
-                          terminalLog += `${timeKey}-${aiDataMapRef.current[timeKey]}\n`;
+                      // 🚨 ২. ডাউনলোড করা ফ্রেম থেকে এআই রেজাল্ট বের করা
+                      const result = await processFrameForGender(tempLocalPath);
+                      
+                      // 🚨 ৩. ম্যাপে রেজাল্ট এবং সাইজ সেভ করা
+                      aiDataMapRef.current[targetSec] = { gender: result, size: sizeKB };
+                      
+                      // 🚨 ৪. টার্মিনালে সুন্দর করে প্রিন্ট করা
+                      let terminalLog = `\n--- 📊 AI DATA MAP (FFmpeg 144p + Size) ---\n`;
+                      Object.keys(aiDataMapRef.current).map(Number).sort((a,b) => a - b).forEach(timeKey => {
+                          const entry = aiDataMapRef.current[timeKey];
+                          terminalLog += `${timeKey}s : [${entry.gender}] - Size: ${entry.size} KB\n`;
                       });
-                  console.log(terminalLog);
-                  
+                      console.log(terminalLog);
+                      
+                      // 🚨 ৫. ফোন মেমোরি বাঁচানোর জন্য ছবি ডিলিট করা
+                      await FileSystem.deleteAsync(tempLocalPath, { idempotent: true });
+
+                      targetScanSecRef.current += 3;
+                  }
               } catch(e) {
-                  console.log(`❌ Frame Error at ${targetSec}s:`, e.message);
+                  // Error handling silently to keep the engine running fast
               } finally {
                   isAiProcessingRef.current = false;
-                  targetScanSecRef.current += SB_INTERVAL;
               }
 
-              await new Promise(r => setTimeout(r, 500)); 
+              // কোনো ১৫ সেকেন্ডের ব্রেক নেই! মাত্র ১০০ মিলি-সেকেন্ড গ্যাপ দিয়ে একটানা স্ক্যান চলবে!
+              await new Promise(r => setTimeout(r, 100)); 
           }
       };
 
       processQueue();
-
       return () => { isQueueActive = false; };
-  }, [player, videoSource, storyboardUrlTemplate]);
+  }, [player, videoSource, lowStreamUrl]);
 
   // 🤖 -------------------- AI ENGINE END -------------------- 🤖
-
 
   useEffect(() => {
     const videoProgressSync = setInterval(async () => {
         if (isSyncingRef.current) return; 
         isSyncingRef.current = true;
-
         try {
             setIsPlayingUI(player?.playing || false);
             if (player) {
@@ -480,7 +330,7 @@ export default function GlobalPlayer() {
 
   const closePlayer = async () => {
       setPlayerState('hidden'); if (isFullscreen) await toggleFullscreen();
-      setStreamUrl(null); setVideoSource(null); safePause(player); safeReleaseAudio(); 
+      setStreamUrl(null); setVideoSource(null); safePause(player); 
   };
 
   const formatTime = (timeInSeconds) => {
