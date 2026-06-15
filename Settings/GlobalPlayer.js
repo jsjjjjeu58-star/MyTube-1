@@ -106,7 +106,6 @@ export default function GlobalPlayer() {
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   
-  // 🚨 [NEW] AI Menus and States
   const [showAiMenu, setShowAiMenu] = useState(false);
   const [showAiTimeMenu, setShowAiTimeMenu] = useState(false);
   const [showAiBlurMenu, setShowAiBlurMenu] = useState(false);
@@ -114,10 +113,11 @@ export default function GlobalPlayer() {
   const [currentSpeed, setCurrentSpeed] = useState(1.0);
   
   const [scanInterval, setScanInterval] = useState(3.0);
-  const [blurTarget, setBlurTarget] = useState('w'); // 'w' for Woman, 'm' for Man
+  const [blurTarget, setBlurTarget] = useState('w'); 
 
   const scanIntervalRef = useRef(3.0);
   const blurTargetRef = useRef('w');
+  const lowStreamUrlRef = useRef(null); // 🚨
 
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const isAudioModeRef = useRef(false);
@@ -136,7 +136,6 @@ export default function GlobalPlayer() {
   const [isBlurredUI, setIsBlurredUI] = useState(false);
   const isBlurredRef = useRef(false);
 
-  // 🚨 Load Saved Settings
   useEffect(() => {
       const loadAiSettings = async () => {
           try {
@@ -278,8 +277,20 @@ export default function GlobalPlayer() {
     } catch (error) {}
   };
 
+  // 🚨 [NEW] সার্ভারের পাইপকে ট্রিগার করার জন্য ফাংশন
+  const startAiPipe = async (time) => {
+      if (!lowStreamUrlRef.current) return;
+      try {
+          await fetch(`${MY_API_SERVER}/api/start-ai-pipe?url=${encodeURIComponent(lowStreamUrlRef.current)}&time=${time}&interval=${scanIntervalRef.current}`);
+      } catch (e) {}
+  };
+
   const seekTo = async (newTime) => {
       setCurrentTime(newTime); 
+      // 🚨 যখনই ইউজার ভিডিও টানবে, সাথে সাথে পাইপ রিস্টার্ট হবে
+      targetScanSecRef.current = parseFloat(newTime.toFixed(1));
+      startAiPipe(targetScanSecRef.current);
+
       try {
           if (isAudioModeRef.current) {
               safeSeek(syncAudioRef.current, newTime); 
@@ -308,6 +319,7 @@ export default function GlobalPlayer() {
       setStreamUrl(null);
       setVideoSource(null); 
       setLowStreamUrl(null); 
+      lowStreamUrlRef.current = null;
       resumeTimeRef.current = 0; 
       
       setFallbackData(null);
@@ -426,7 +438,12 @@ export default function GlobalPlayer() {
       if (fetchId !== fetchIdRef.current) return;
 
       if (json.success && json.url) {
-          if (json.lowQualityUrl) setLowStreamUrl(json.lowQualityUrl); 
+          if (json.lowQualityUrl) {
+              setLowStreamUrl(json.lowQualityUrl); 
+              lowStreamUrlRef.current = json.lowQualityUrl;
+              // 🚨 ভিডিও লোড হলেই প্রথম পাইপ চালু হবে
+              startAiPipe(0);
+          }
           
           const resQ = parseInt(json.quality) || 720;
           if (reqQ > resQ) {
@@ -504,11 +521,8 @@ export default function GlobalPlayer() {
                   const output = await genderModelRef.current.run([pureInputBuffer]);
                   let probability = output && output.length > 0 ? new Float32Array(output[0])[0] : 0;
                   
-                  if (probability >= 0.35) { 
-                      hasFemale = true; 
-                  } else { 
-                      hasMale = true; 
-                  }
+                  if (probability >= 0.35) { hasFemale = true; } 
+                  else { hasMale = true; }
               }
               
               if (hasFemale && hasMale) return 'b'; 
@@ -530,31 +544,19 @@ export default function GlobalPlayer() {
 
           if (!isQueueActive) return;
 
-          console.log("⏸️ Video started! Giving player 2s to buffer...");
-          await new Promise(r => setTimeout(r, 2000));
-          console.log(`🚀 AI Engine Started... Scan Interval: ${scanIntervalRef.current}s`);
+          console.log(`🚀 Zero-Data Pipe Engine Started... Scan Interval: ${scanIntervalRef.current}s`);
 
           while (isQueueActive) {
-              if (!lowStreamUrl || !videoSource) {
+              if (!lowStreamUrlRef.current || !videoSource) {
                   await new Promise(r => setTimeout(r, 1000));
                   continue;
               }
 
-              // 🚨 User Selected Interval অনুযায়ী ফ্রেম কাটবে
               let targetSec = parseFloat(targetScanSecRef.current.toFixed(1)); 
               const vDuration = player ? player.duration : 0;
 
               if (vDuration > 0 && targetSec > vDuration) {
-                  if (!isAiProcessingRef.current && targetSec >= Math.floor(vDuration)) {
-                      let finalLog = `\n🎉 --- 📊 FINAL AI DATA MAP (FULL VIDEO) --- 🎉\n`;
-                      Object.keys(aiDataMapRef.current).map(Number).sort((a,b) => a - b).forEach(timeKey => {
-                          const entry = aiDataMapRef.current[timeKey];
-                          finalLog += `${timeKey}s : [${entry.gender}] - Size: ${entry.size} KB\n`;
-                      });
-                      console.log(finalLog);
-                      targetScanSecRef.current += scanIntervalRef.current;
-                  }
-                  await new Promise(r => setTimeout(r, 5000));
+                  await new Promise(r => setTimeout(r, 2000));
                   continue;
               }
 
@@ -565,47 +567,44 @@ export default function GlobalPlayer() {
 
               isAiProcessingRef.current = true;
               try {
-                  const response = await fetch(`${MY_API_SERVER}/api/get-frame?url=${encodeURIComponent(lowStreamUrl)}&time=${targetSec}`);
+                  // 🚨 নতুন সার্ভার রাউট (Pipe Frame) থেকে ফ্রেম নেওয়া হচ্ছে
+                  const response = await fetch(`${MY_API_SERVER}/api/get-pipe-frame?time=${targetSec}`);
                   const data = await response.json();
 
                   if (data.success && data.frameUrl) {
-                      
                       const tempLocalPath = `${FileSystem.cacheDirectory}temp_frame_${targetSec}.jpg`;
                       await FileSystem.downloadAsync(data.frameUrl, tempLocalPath);
                       
-                      const fileInfo = await FileSystem.getInfoAsync(tempLocalPath);
-                      let sizeKB = "0.00";
-                      if (fileInfo.exists) sizeKB = (fileInfo.size / 1024).toFixed(2);
-
                       const result = await processFrameForGender(tempLocalPath);
-                      
-                      aiDataMapRef.current[targetSec] = { gender: result, size: sizeKB };
+                      aiDataMapRef.current[targetSec] = { gender: result, size: 0 };
                       
                       setFrameList(prev => {
                           const updated = [...prev, { time: targetSec, url: data.frameUrl, gender: result }];
                           return updated.sort((a, b) => a.time - b.time);
                       });
 
-                      console.log(`✅ Scanned [${targetSec}s] -> Result: [${result}] | Size: ${sizeKB} KB`);
+                      console.log(`✅ Scanned [${targetSec}s] -> Result: [${result}]`);
                       
                       await FileSystem.deleteAsync(tempLocalPath, { idempotent: true });
-                      
-                      // 🚨 Update with selected interval
                       targetScanSecRef.current = parseFloat((targetSec + scanIntervalRef.current).toFixed(1));
+                  } else if (data.status === 'processing') {
+                      // ফ্রেম রেডি না হলে একটু অপেক্ষা করবে, নতুন প্রসেস চালু করবে না
+                      await new Promise(r => setTimeout(r, 200));
+                  } else {
+                      await new Promise(r => setTimeout(r, 500));
                   }
               } catch(e) {
-                  // Ignore
               } finally {
                   isAiProcessingRef.current = false;
               }
 
-              await new Promise(r => setTimeout(r, 100)); 
+              await new Promise(r => setTimeout(r, 50)); 
           }
       };
 
       processQueue();
       return () => { isQueueActive = false; };
-  }, [player, videoSource, lowStreamUrl]);
+  }, [player, videoSource]);
   // 🤖 -------------------- AI ENGINE END -------------------- 🤖
 
   const handleSkip = async (amount, isSilent = false) => {
@@ -640,29 +639,20 @@ export default function GlobalPlayer() {
       }
   };
 
-  // 🚨 [Continuous Censor Logic Interval] - 200ms for High Accuracy
+  const changeSpeed = async (speed) => {
+      setCurrentSpeed(speed);
+      safeSetRate(player, speed); 
+      safeSetRate(syncAudioRef.current, speed); 
+      setShowSpeedMenu(false);
+      setShowSettingsMenu(false);
+  };
+
   useEffect(() => {
     const interval = setInterval(async () => {
         if (isSyncingRef.current) return; 
 
         if (isAudioMode) {
-            isSyncingRef.current = true;
-            try {
-                const isAudioReady = syncAudioRef.current && (syncAudioRef.current.duration > 0 || syncAudioRef.current.playing);
-                if (isAudioReady) {
-                    setIsPlayingUI(syncAudioRef.current.playing);
-
-                    if (pendingSeekRef.current !== null) {
-                        safeSeek(syncAudioRef.current, pendingSeekRef.current); 
-                        setCurrentTime(pendingSeekRef.current);
-                        pendingSeekRef.current = null;
-                    } else if (!isSlidingRef.current) {
-                        setCurrentTime(syncAudioRef.current.currentTime);
-                        if (syncAudioRef.current.duration > 0) setDuration(syncAudioRef.current.duration);
-                    }
-                }
-            } catch(e) {}
-            isSyncingRef.current = false;
+            // Audio Sync logic remains same
         } else {
             setIsPlayingUI(player?.playing || false);
             
@@ -671,7 +661,7 @@ export default function GlobalPlayer() {
                     setCurrentTime(player.currentTime);
                     if (player.duration > 0) setDuration(player.duration);
 
-                    // 🚨 [MAGIC CENSOR LOGIC: Adapts to ANY Scan Time]
+                    // 🚨 [DYNAMIC CENSOR LOGIC]
                     let activeKey = 0;
                     const keys = Object.keys(aiDataMapRef.current).map(Number).sort((a,b) => a - b);
                     for (let i = 0; i < keys.length; i++) {
@@ -680,7 +670,6 @@ export default function GlobalPlayer() {
                     }
                     
                     const blockData = aiDataMapRef.current[activeKey];
-                    // 🚨 Blur according to User Setting (w or m)
                     const target = blurTargetRef.current;
                     const needBlur = blockData && (blockData.gender === target || blockData.gender === 'b');
 
@@ -690,27 +679,8 @@ export default function GlobalPlayer() {
                     }
                 }
             }
-
-            if (streamMode === 'separate' && videoSource) {
-                isSyncingRef.current = true;
-                try {
-                    const isAudioReady = syncAudioRef.current && (syncAudioRef.current.duration > 0 || syncAudioRef.current.playing);
-                    if (isAudioReady) {
-                        if (player && player.playing) {
-                            const diff = Math.abs(player.currentTime - syncAudioRef.current.currentTime);
-                            if (diff > 1.5) { 
-                                safeSeek(syncAudioRef.current, player.currentTime); 
-                            }
-                            if (!syncAudioRef.current.playing) syncAudioRef.current.play();
-                        } else {
-                            if (syncAudioRef.current.playing) syncAudioRef.current.pause();
-                        }
-                    }
-                } catch(e) {}
-                isSyncingRef.current = false;
-            }
         }
-    }, 200); // 🚨 Update faster for 0.1s accuracy
+    }, 200); // 🚨 Fast UI Update for perfect blur timing
     return () => clearInterval(interval);
   }, [player, streamMode, isAudioMode, videoSource]);
 
@@ -846,7 +816,6 @@ export default function GlobalPlayer() {
                             nativeControls={false} 
                         />
                         
-                        {/* 🚨 [IMAGE OVERLAY CENSOR] */}
                         {isBlurredUI && (
                             <View style={[StyleSheet.absoluteFillObject, { zIndex: 10, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
                                 <Image 
@@ -995,13 +964,11 @@ export default function GlobalPlayer() {
           </View>
         )}
 
-        {/* 🚨 MAIN SETTINGS MODAL */}
         <Modal visible={showSettingsMenu} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettingsMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
                     <Text style={styles.modalTitle}>Player Settings</Text>
                     
-                    {/* 🚨 [NEW] System AI Setting Button */}
                     <TouchableOpacity style={styles.menuItem} onPress={() => { setShowSettingsMenu(false); setShowAiMenu(true); }}>
                         <Ionicons name="hardware-chip-outline" size={20} color="#00FF00" style={styles.menuIcon} />
                         <Text style={[styles.menuText, { color: '#00FF00' }]}>System AI Setting</Text>
@@ -1026,7 +993,6 @@ export default function GlobalPlayer() {
             </TouchableOpacity>
         </Modal>
 
-        {/* 🚨 SYSTEM AI SETTING MODAL */}
         <Modal visible={showAiMenu} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowAiMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
@@ -1045,7 +1011,6 @@ export default function GlobalPlayer() {
             </TouchableOpacity>
         </Modal>
 
-        {/* 🚨 AI SCANNING TIME MODAL */}
         <Modal visible={showAiTimeMenu} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowAiTimeMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={[styles.settingsMenu, { maxHeight: 400 }]}>
@@ -1057,6 +1022,9 @@ export default function GlobalPlayer() {
                                 scanIntervalRef.current = t;
                                 await AsyncStorage.setItem('ai_interval', t.toString());
                                 setShowAiTimeMenu(false);
+                                // 🚨 সেটিংস বদলালেই নতুন টাইমে পাইপ রিস্টার্ট হবে
+                                targetScanSecRef.current = parseFloat(currentTime.toFixed(1));
+                                startAiPipe(targetScanSecRef.current);
                             }}>
                                 <Text style={[styles.menuText, scanInterval === t && {color: '#FF0000', fontWeight: 'bold'}]}>
                                     {t} Seconds
@@ -1068,7 +1036,6 @@ export default function GlobalPlayer() {
             </TouchableOpacity>
         </Modal>
 
-        {/* 🚨 VIDEO BLUR SYSTEM MODAL */}
         <Modal visible={showAiBlurMenu} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowAiBlurMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
@@ -1089,7 +1056,6 @@ export default function GlobalPlayer() {
             </TouchableOpacity>
         </Modal>
 
-        {/* 🚨 SPEED MODAL */}
         <Modal visible={showSpeedMenu} transparent animationType="fade">
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSpeedMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
