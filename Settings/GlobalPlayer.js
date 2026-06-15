@@ -9,7 +9,6 @@ import Slider from '@react-native-community/slider';
 import * as ScreenOrientation from 'expo-screen-orientation'; 
 import * as WebBrowser from 'expo-web-browser'; 
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
-import { BlurView } from 'expo-blur'; 
 
 // 🚨 [REAL AI INTEGRATION PACKAGES]
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -292,7 +291,6 @@ export default function GlobalPlayer() {
       isAiProcessingRef.current = false;
       setFrameList([]); 
 
-      // Reset Blur
       setIsBlurredUI(false);
       isBlurredRef.current = false;
 
@@ -448,7 +446,6 @@ export default function GlobalPlayer() {
                   const face = faces[i];
                   const box = face.frame || face.bounds || {}; 
                   
-                  // 🚨 [FIXED] Padding added for better hair and jawline detection
                   let padding = 20; 
                   let originX = Math.floor(Math.max(0, (box.left ?? box.x ?? box.originX ?? 0) - padding / 2));
                   let originY = Math.floor(Math.max(0, (box.top ?? box.y ?? box.originY ?? 0) - padding));
@@ -477,7 +474,6 @@ export default function GlobalPlayer() {
                   const output = await genderModelRef.current.run([pureInputBuffer]);
                   let probability = output && output.length > 0 ? new Float32Array(output[0])[0] : 0;
                   
-                  // 🚨 [FIXED] Sensitivity lowered to 0.35
                   if (probability >= 0.35) { 
                       hasFemale = true; 
                   } else { 
@@ -619,7 +615,7 @@ export default function GlobalPlayer() {
       setShowSettingsMenu(false);
   };
 
-  // 🚨 [Continuous Blur Logic Interval]
+  // 🚨 [Continuous Censor Logic Interval]
   useEffect(() => {
     const interval = setInterval(async () => {
         if (isSyncingRef.current) return; 
@@ -650,7 +646,7 @@ export default function GlobalPlayer() {
                     setCurrentTime(player.currentTime);
                     if (player.duration > 0) setDuration(player.duration);
 
-                    // 🚨 [MAGIC BLUR LOGIC]: একটানা ব্লার চেক করা
+                    // 🚨 [MAGIC CENSOR LOGIC]: একটানা সেন্সর চেক করা
                     const currentBlock = Math.floor(player.currentTime / 3) * 3;
                     const blockData = aiDataMapRef.current[currentBlock];
                     
@@ -814,16 +810,21 @@ export default function GlobalPlayer() {
                             nativeControls={false} 
                         />
                         
-                        {/* 🚨 [NEW] BLUR OVERLAY (একটানা ব্লার) */}
+                        {/* 🚨 [NEW] IMAGE OVERLAY CENSOR (Native UI) */}
                         {isBlurredUI && (
-                            <BlurView intensity={100} tint="dark" style={StyleSheet.absoluteFillObject}>
-                                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                                    <Ionicons name="eye-off-outline" size={60} color="rgba(255,255,255,0.5)" />
-                                    <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 16, marginTop: 10, fontWeight: 'bold' }}>
-                                        AI Censored (Female Detected)
-                                    </Text>
-                                </View>
-                            </BlurView>
+                            <View style={[StyleSheet.absoluteFillObject, { zIndex: 10, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
+                                {/* ভিডিওর থাম্বনেইলকেই ঘোলা করে ব্যাকগ্রাউন্ডে দেওয়া হয়েছে */}
+                                <Image 
+                                    source={{ uri: `https://img.youtube.com/vi/${currentVideoIdRef.current}/hqdefault.jpg` }}
+                                    style={[StyleSheet.absoluteFillObject, { opacity: 0.5 }]}
+                                    blurRadius={25} 
+                                    resizeMode="cover"
+                                />
+                                <Ionicons name="eye-off-outline" size={60} color="rgba(255,255,255,0.8)" />
+                                <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 16, marginTop: 10, fontWeight: 'bold' }}>
+                                    AI Censored (Female Detected)
+                                </Text>
+                            </View>
                         )}
                     </View>
                 ) : null}
@@ -883,7 +884,6 @@ export default function GlobalPlayer() {
 
              <View style={styles.bottomBarWrapper} pointerEvents="box-none">
                 
-                {/* 🚨 STORYBOARD GALLERY */}
                 {frameList.length > 0 && (
                     <ScrollView 
                         horizontal 
@@ -901,7 +901,6 @@ export default function GlobalPlayer() {
                                 <View style={styles.frameTimeBox}>
                                     <Text style={styles.frameTimeText}>{formatTime(frame.time)}</Text>
                                 </View>
-                                {/* 🚨 Updated Badges for W, M and W+M */}
                                 {frame.gender !== 'none' && (
                                     <View style={[
                                         styles.badge, 
