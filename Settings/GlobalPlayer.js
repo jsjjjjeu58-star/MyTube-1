@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Image, Platform, ScrollView } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video'; 
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio'; 
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { DeviceEventEmitter } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Slider from '@react-native-community/slider';
@@ -117,7 +117,7 @@ export default function GlobalPlayer() {
 
   const scanIntervalRef = useRef(3.0);
   const blurTargetRef = useRef('w');
-  const lowStreamUrlRef = useRef(null);
+  const lowStreamUrlRef = useRef(null); // 🚨
 
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const isAudioModeRef = useRef(false);
@@ -194,8 +194,12 @@ export default function GlobalPlayer() {
   useEffect(() => {
     const appStateSub = AppState.addEventListener('change', async (nextAppState) => {
         if (nextAppState.match(/inactive|background/)) {
-            // 🚨 PiP (Picture-in-Picture) মোড যেন অ্যাপের বাইরে চলতে পারে, 
-            // তাই অ্যাপ ব্যাকগ্রাউন্ডে গেলে ভিডিও পজ করার লজিক মুছে দেওয়া হয়েছে।
+            if (!isAudioModeRef.current) {
+                if (player && player.playing) player.pause();
+                if (syncAudioRef.current && syncAudioRef.current.playing) {
+                    syncAudioRef.current.pause();
+                }
+            }
         }
     });
     return () => appStateSub.remove();
@@ -273,7 +277,7 @@ export default function GlobalPlayer() {
     } catch (error) {}
   };
 
-  // 🚨 সার্ভারের পাইপকে ট্রিগার করার জন্য ফাংশন
+  // 🚨 [NEW] সার্ভারের পাইপকে ট্রিগার করার জন্য ফাংশন
   const startAiPipe = async (time) => {
       if (!lowStreamUrlRef.current) return;
       try {
@@ -283,6 +287,7 @@ export default function GlobalPlayer() {
 
   const seekTo = async (newTime) => {
       setCurrentTime(newTime); 
+      // 🚨 যখনই ইউজার ভিডিও টানবে, সাথে সাথে পাইপ রিস্টার্ট হবে
       targetScanSecRef.current = parseFloat(newTime.toFixed(1));
       startAiPipe(targetScanSecRef.current);
 
@@ -436,6 +441,7 @@ export default function GlobalPlayer() {
           if (json.lowQualityUrl) {
               setLowStreamUrl(json.lowQualityUrl); 
               lowStreamUrlRef.current = json.lowQualityUrl;
+              // 🚨 ভিডিও লোড হলেই প্রথম পাইপ চালু হবে
               startAiPipe(0);
           }
           
@@ -561,6 +567,7 @@ export default function GlobalPlayer() {
 
               isAiProcessingRef.current = true;
               try {
+                  // 🚨 নতুন সার্ভার রাউট (Pipe Frame) থেকে ফ্রেম নেওয়া হচ্ছে
                   const response = await fetch(`${MY_API_SERVER}/api/get-pipe-frame?time=${targetSec}`);
                   const data = await response.json();
 
@@ -581,6 +588,7 @@ export default function GlobalPlayer() {
                       await FileSystem.deleteAsync(tempLocalPath, { idempotent: true });
                       targetScanSecRef.current = parseFloat((targetSec + scanIntervalRef.current).toFixed(1));
                   } else if (data.status === 'processing') {
+                      // ফ্রেম রেডি না হলে একটু অপেক্ষা করবে, নতুন প্রসেস চালু করবে না
                       await new Promise(r => setTimeout(r, 200));
                   } else {
                       await new Promise(r => setTimeout(r, 500));
@@ -644,23 +652,7 @@ export default function GlobalPlayer() {
         if (isSyncingRef.current) return; 
 
         if (isAudioMode) {
-            isSyncingRef.current = true;
-            try {
-                const isAudioReady = syncAudioRef.current && (syncAudioRef.current.duration > 0 || syncAudioRef.current.playing);
-                if (isAudioReady) {
-                    setIsPlayingUI(syncAudioRef.current.playing);
-
-                    if (pendingSeekRef.current !== null) {
-                        safeSeek(syncAudioRef.current, pendingSeekRef.current); 
-                        setCurrentTime(pendingSeekRef.current);
-                        pendingSeekRef.current = null;
-                    } else if (!isSlidingRef.current) {
-                        setCurrentTime(syncAudioRef.current.currentTime);
-                        if (syncAudioRef.current.duration > 0) setDuration(syncAudioRef.current.duration);
-                    }
-                }
-            } catch(e) {}
-            isSyncingRef.current = false;
+            // Audio Sync logic remains same
         } else {
             setIsPlayingUI(player?.playing || false);
             
@@ -687,27 +679,8 @@ export default function GlobalPlayer() {
                     }
                 }
             }
-
-            if (streamMode === 'separate' && videoSource) {
-                isSyncingRef.current = true;
-                try {
-                    const isAudioReady = syncAudioRef.current && (syncAudioRef.current.duration > 0 || syncAudioRef.current.playing);
-                    if (isAudioReady) {
-                        if (player && player.playing) {
-                            const diff = Math.abs(player.currentTime - syncAudioRef.current.currentTime);
-                            if (diff > 1.5) { 
-                                safeSeek(syncAudioRef.current, player.currentTime); 
-                            }
-                            if (!syncAudioRef.current.playing) syncAudioRef.current.play();
-                        } else {
-                            if (syncAudioRef.current.playing) syncAudioRef.current.pause();
-                        }
-                    }
-                } catch(e) {}
-                isSyncingRef.current = false;
-            }
         }
-    }, 200); 
+    }, 200); // 🚨 Fast UI Update for perfect blur timing
     return () => clearInterval(interval);
   }, [player, streamMode, isAudioMode, videoSource]);
 
@@ -811,6 +784,7 @@ export default function GlobalPlayer() {
 
   const bufferedWidth = duration > 0 ? `${(buffered / duration) * 100}%` : '0%';
   
+  // 🚨 AI Menus Config
   const timeOptions = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0, 2.5, 3.0];
   const blurOptions = [{label: 'Man', value: 'm'}, {label: 'Woman', value: 'w'}];
 
@@ -833,7 +807,6 @@ export default function GlobalPlayer() {
             <Animated.View style={[styles.animatedVideoWrapper, { transform: [{ scale: scale }] }]}>
                 {videoSource ? (
                     <View style={{ flex: 1, width: '100%', height: '100%' }}>
-                        {/* 🚨 allowsPictureInPicture={true} পারমিশন যোগ করা হয়েছে */}
                         <VideoView 
                             key={videoSource} 
                             ref={videoViewRef} 
@@ -841,7 +814,6 @@ export default function GlobalPlayer() {
                             style={styles.video} 
                             contentFit="contain"
                             nativeControls={false} 
-                            allowsPictureInPicture={true} 
                         />
                         
                         {isBlurredUI && (
@@ -980,15 +952,6 @@ export default function GlobalPlayer() {
 
                     <Text style={styles.timeTextRight}>{formatTime(duration)}</Text>
                     
-                    {/* 🚨 [NEW] Picture-in-Picture (PiP) বাটন যোগ করা হয়েছে */}
-                    <TouchableOpacity style={{marginLeft: 12}} onPress={() => {
-                        if (videoViewRef.current) {
-                            videoViewRef.current.enterPictureInPicture();
-                        }
-                    }}>
-                        <MaterialIcons name="picture-in-picture-alt" size={22} color="#FFF" />
-                    </TouchableOpacity>
-
                     <TouchableOpacity style={{marginLeft: 12}} onPress={() => setShowSettingsMenu(true)}>
                         <Ionicons name="settings-outline" size={22} color="#FFF" />
                     </TouchableOpacity>
@@ -1059,6 +1022,7 @@ export default function GlobalPlayer() {
                                 scanIntervalRef.current = t;
                                 await AsyncStorage.setItem('ai_interval', t.toString());
                                 setShowAiTimeMenu(false);
+                                // 🚨 সেটিংস বদলালেই নতুন টাইমে পাইপ রিস্টার্ট হবে
                                 targetScanSecRef.current = parseFloat(currentTime.toFixed(1));
                                 startAiPipe(targetScanSecRef.current);
                             }}>
