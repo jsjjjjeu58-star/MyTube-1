@@ -14,7 +14,6 @@ import PlaylistPage from './Screens/PlaylistPage';
 import ShortsScreen from './Screens/ShortsScreen';
 import SubscriptionsScreen from './Screens/SubscriptionsScreen';
 import livescreen from './Screens/livescreen'; 
-import downloadscreen from './Screens/downloadscreen';
 
 // Settings
 import SettingsScreen from './Settings/SettingsScreen';
@@ -45,7 +44,7 @@ export default function App() {
             <Stack.Screen name="History" component={HistoryPage} options={{ headerShown: false }} />
             <Stack.Screen name="Subscriptions" component={SubscriptionsScreen} options={{ headerShown: false }} />
             <Stack.Screen name="searchsettings" component={SearchSetting} options={{ headerShown: false }} />
-            <Stack.Screen name="Downloads" component={downloadscreen} options={{ headerShown: false }} />
+            
             <Stack.Screen name="Live" component={livescreen} options={{ headerShown: false }} />
           </Stack.Navigator>
 
