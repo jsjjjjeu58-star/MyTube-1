@@ -6,7 +6,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { ThemeProvider } from './ThemeContext';
 import { LanguageProvider } from './LanguageContext';
 
-// Screens ইমপোর্ট
+// Screens
 import HomeScreen from './Screens/HomeScreen';
 import ChannelScreen from './Screens/ChannelScreen';
 import PlayerScreen from './Screens/PlayerScreen';
@@ -14,9 +14,9 @@ import PlaylistPage from './Screens/PlaylistPage';
 import ShortsScreen from './Screens/ShortsScreen';
 import SubscriptionsScreen from './Screens/SubscriptionsScreen';
 import livescreen from './Screens/livescreen'; 
-import downloadscreen from './Screens/downloadscreen'; // আপনার পূর্বের কোডে এটি ব্যবহৃত ছিল
+import downloadscreen from './Screens/downloadscreen';
 
-// Settings ইমপোর্ট
+// Settings
 import SettingsScreen from './Settings/SettingsScreen';
 import HistoryPage from './Settings/HistoryPage';
 import GlobalDownloadManager from './Settings/GlobalDownloadManager';
@@ -36,24 +36,19 @@ export default function App() {
               cardStyle: { backgroundColor: '#000000' }
             }}
           >
-            {/* মূল স্ক্রিনসমূহ */}
             <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Channel" component={ChannelScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Player" component={PlayerScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Playlist" component={PlaylistPage} options={{ headerShown: false }} />
             <Stack.Screen name="Shorts" component={ShortsScreen} options={{ headerShown: false }} />
-
-            {/* সেটিংস এবং হিস্টোরি */}
             <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
             <Stack.Screen name="History" component={HistoryPage} options={{ headerShown: false }} />
             <Stack.Screen name="Subscriptions" component={SubscriptionsScreen} options={{ headerShown: false }} />
             <Stack.Screen name="searchsettings" component={SearchSetting} options={{ headerShown: false }} />
             <Stack.Screen name="Downloads" component={downloadscreen} options={{ headerShown: false }} />
             <Stack.Screen name="Live" component={livescreen} options={{ headerShown: false }} />
-
           </Stack.Navigator>
 
-          {/* ভাসমান প্লেয়ার এবং ডাউনলোড ম্যানেজার */}
           <GlobalPlayer />
           <GlobalDownloadManager />
 
