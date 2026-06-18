@@ -115,6 +115,10 @@ export default function GlobalPlayer() {
   const [scanInterval, setScanInterval] = useState(3.0);
   const [blurTarget, setBlurTarget] = useState('w'); 
 
+  // 🚨 [NEW] AI Scan Enable/Disable States
+  const [aiScanEnabled, setAiScanEnabled] = useState(false);
+  const aiScanEnabledRef = useRef(false);
+
   const scanIntervalRef = useRef(3.0);
   const blurTargetRef = useRef('w');
   const lowStreamUrlRef = useRef(null); 
@@ -278,7 +282,8 @@ export default function GlobalPlayer() {
   };
 
   const startAiPipe = async (time) => {
-      if (!lowStreamUrlRef.current) return;
+      // 🚨 [NEW] স্ক্যানিং অফ থাকলে পাইপ রিকোয়েস্ট যাবে না
+      if (!lowStreamUrlRef.current || !aiScanEnabledRef.current) return;
       try {
           await fetch(`${MY_API_SERVER}/api/start-ai-pipe?url=${encodeURIComponent(lowStreamUrlRef.current)}&time=${time}&interval=${scanIntervalRef.current}`);
       } catch (e) {}
@@ -287,7 +292,11 @@ export default function GlobalPlayer() {
   const seekTo = async (newTime) => {
       setCurrentTime(newTime); 
       targetScanSecRef.current = parseFloat(newTime.toFixed(1));
-      startAiPipe(targetScanSecRef.current);
+      
+      // 🚨 [NEW] স্ক্যানিং অন থাকলেই কেবল পাইপ রিস্টার্ট হবে
+      if (aiScanEnabledRef.current) {
+          startAiPipe(targetScanSecRef.current);
+      }
 
       try {
           if (isAudioModeRef.current) {
@@ -303,6 +312,11 @@ export default function GlobalPlayer() {
 
   useEffect(() => {
     const playSub = DeviceEventEmitter.addListener('playVideo', async (data) => {
+      // 🚨 [NEW] সার্চ স্ক্রিন থেকে পাঠানো ডাটা রিসিভ করে স্ক্যানিং অন/অফ করা হচ্ছে
+      const scanStatus = data.aiScanEnabled || false;
+      setAiScanEnabled(scanStatus);
+      aiScanEnabledRef.current = scanStatus;
+
       if (currentVideoIdRef.current === data.videoId) {
           setPlayerState('full');
           if (isFullscreen) toggleFullscreen();
@@ -439,7 +453,11 @@ export default function GlobalPlayer() {
           if (json.lowQualityUrl) {
               setLowStreamUrl(json.lowQualityUrl); 
               lowStreamUrlRef.current = json.lowQualityUrl;
-              startAiPipe(0);
+              
+              // 🚨 [NEW] স্ক্যানিং অন থাকলেই শুধু ভিডিও লোড হওয়ার পর পাইপ চালু হবে
+              if (aiScanEnabledRef.current) {
+                  startAiPipe(0);
+              }
           }
           
           const resQ = parseInt(json.quality) || 720;
@@ -491,7 +509,6 @@ export default function GlobalPlayer() {
                   const box = face.frame || face.bounds || {}; 
                   
                   let padding = 20; 
-                  // 🚨 [FIXED] সমান প্যাডিং দিয়ে স্কয়ার শেপ তৈরি করা হলো
                   let faceWidth = box.width ?? 0;
                   let faceHeight = box.height ?? 0;
 
@@ -501,12 +518,11 @@ export default function GlobalPlayer() {
                   let width = Math.floor(Math.max(10, faceWidth + padding * 2));
                   let height = Math.floor(Math.max(10, faceHeight + padding * 2)); 
                   
-                  // 🚨 [FIXED] এখানে crop করার পাশাপাশি ছবিটিকে 224x224 পিক্সেলে Resize করা হলো
                   const croppedFace = await ImageManipulator.manipulateAsync(
                       uri, 
                       [
                           { crop: { originX, originY, width, height } },
-                          { resize: { width: 224, height: 224 } } // 🚨 যুক্ত করা লাইন 
+                          { resize: { width: 224, height: 224 } } 
                       ], 
                       { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
                   );
@@ -529,7 +545,6 @@ export default function GlobalPlayer() {
                   const output = await genderModelRef.current.run([pureInputBuffer]);
                   let probability = output && output.length > 0 ? new Float32Array(output[0])[0] : 0;
                   
-                  // 🚨 [FIXED] থ্রেশহোল্ড 0.35 থেকে বাড়িয়ে 0.50 করা হলো
                   if (probability >= 0.50) { hasFemale = true; } 
                   else { hasMale = true; }
               }
@@ -556,7 +571,8 @@ export default function GlobalPlayer() {
           console.log(`🚀 Zero-Data Pipe Engine Started... Scan Interval: ${scanIntervalRef.current}s`);
 
           while (isQueueActive) {
-              if (!lowStreamUrlRef.current || !videoSource) {
+              // 🚨 [NEW] স্ক্যানিং অফ থাকলে শুধু অপেক্ষা করবে
+              if (!lowStreamUrlRef.current || !videoSource || !aiScanEnabledRef.current) {
                   await new Promise(r => setTimeout(r, 1000));
                   continue;
               }
@@ -590,8 +606,6 @@ export default function GlobalPlayer() {
                           const updated = [...prev, { time: targetSec, url: data.frameUrl, gender: result }];
                           return updated.sort((a, b) => a.time - b.time);
                       });
-
-                      console.log(`✅ Scanned [${targetSec}s] -> Result: [${result}]`);
                       
                       await FileSystem.deleteAsync(tempLocalPath, { idempotent: true });
                       targetScanSecRef.current = parseFloat((targetSec + scanIntervalRef.current).toFixed(1));
@@ -667,6 +681,15 @@ export default function GlobalPlayer() {
                 if (!isSlidingRef.current && (player.currentTime > 0 || player.playing)) {
                     setCurrentTime(player.currentTime);
                     if (player.duration > 0) setDuration(player.duration);
+
+                    // 🚨 [NEW] স্ক্যানিং অফ থাকলে ব্লার ইউআই ফোর্স অফ করা হচ্ছে
+                    if (!aiScanEnabledRef.current) {
+                        if (isBlurredRef.current) {
+                            isBlurredRef.current = false;
+                            setIsBlurredUI(false);
+                        }
+                        return;
+                    }
 
                     let activeKey = 0;
                     const keys = Object.keys(aiDataMapRef.current).map(Number).sort((a,b) => a - b);
@@ -893,7 +916,7 @@ export default function GlobalPlayer() {
 
              <View style={styles.bottomBarWrapper} pointerEvents="box-none">
                 
-                {frameList.length > 0 && (
+                {frameList.length > 0 && aiScanEnabled && (
                     <ScrollView 
                         horizontal 
                         showsHorizontalScrollIndicator={false} 
@@ -1003,6 +1026,25 @@ export default function GlobalPlayer() {
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
                     <Text style={styles.modalTitle}>System AI Setting</Text>
                     
+                    {/* 🚨 [NEW] ভিডিও চলাকালীন স্ক্যানিং অন/অফ করার টগল */}
+                    <TouchableOpacity style={styles.menuItem} onPress={() => {
+                        const newVal = !aiScanEnabled;
+                        setAiScanEnabled(newVal);
+                        aiScanEnabledRef.current = newVal;
+                        if (newVal) {
+                            startAiPipe(parseFloat(currentTime.toFixed(1)));
+                        } else {
+                            setIsBlurredUI(false);
+                            isBlurredRef.current = false;
+                        }
+                        setShowAiMenu(false);
+                    }}>
+                        <Ionicons name={aiScanEnabled ? "scan" : "scan-outline"} size={20} color={aiScanEnabled ? "#00FF00" : "#FFF"} style={styles.menuIcon} />
+                        <Text style={[styles.menuText, aiScanEnabled && { color: '#00FF00', fontWeight: 'bold' }]}>
+                            {aiScanEnabled ? 'AI Scanning: ON' : 'AI Scanning: OFF'}
+                        </Text>
+                    </TouchableOpacity>
+
                     <TouchableOpacity style={styles.menuItem} onPress={() => { setShowAiMenu(false); setShowAiTimeMenu(true); }}>
                         <Ionicons name="timer-outline" size={20} color="#FFF" style={styles.menuIcon} />
                         <Text style={styles.menuText}>AI Scanning Time ({scanInterval}s)</Text>
@@ -1028,7 +1070,7 @@ export default function GlobalPlayer() {
                                 await AsyncStorage.setItem('ai_interval', t.toString());
                                 setShowAiTimeMenu(false);
                                 targetScanSecRef.current = parseFloat(currentTime.toFixed(1));
-                                startAiPipe(targetScanSecRef.current);
+                                if (aiScanEnabledRef.current) startAiPipe(targetScanSecRef.current);
                             }}>
                                 <Text style={[styles.menuText, scanInterval === t && {color: '#FF0000', fontWeight: 'bold'}]}>
                                     {t} Seconds
