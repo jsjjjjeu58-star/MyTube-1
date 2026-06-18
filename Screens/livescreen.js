@@ -221,12 +221,28 @@ export default function LiveScreen() {
     navigation.navigate('Player', { videoId: item.id, videoData: item, aiScanEnabled: doScan });
   };
 
-  const renderTopChannel = ({ item }) => (
-    <TouchableOpacity style={styles.topChannelItem} onPress={() => playTopChannelLive(item)}>
-      <Image source={{ uri: item.logo }} style={styles.topChannelLogo} />
-      <Text style={styles.topChannelName} numberOfLines={1}>{item.name}</Text>
-    </TouchableOpacity>
-  );
+  const renderTopChannel = ({ item }) => {
+    const isScanOn = videoScanSettings[item.liveVideoId] !== undefined ? videoScanSettings[item.liveVideoId] : masterVideoScan;
+    return (
+      <View style={styles.topChannelWrapper}>
+        <TouchableOpacity style={styles.topChannelItem} onPress={() => playTopChannelLive(item)}>
+          <Image source={{ uri: item.logo }} style={styles.topChannelLogo} />
+          <Text style={styles.topChannelName} numberOfLines={1}>{item.name}</Text>
+        </TouchableOpacity>
+        
+        {/* 🚨 [NEW] Top Channel AI Scan Toggle */}
+        <TouchableOpacity 
+            style={[styles.topChannelAiScanToggle, { borderColor: isScanOn ? '#00BFA5' : (isDarkMode ? '#444' : '#CCC') }]} 
+            onPress={() => toggleVideoScan(item.liveVideoId)}
+        >
+            <Ionicons name="hardware-chip-outline" size={10} color={isScanOn ? '#00BFA5' : (isDarkMode ? '#888' : '#999')} />
+            <Text style={{ fontSize: 8, color: isScanOn ? '#00BFA5' : (isDarkMode ? '#888' : '#999'), marginTop: 2, fontWeight: 'bold' }}>
+                {isScanOn ? 'SCAN ON' : 'SCAN OFF'}
+            </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   const renderVideoItem = ({ item }) => {
     const isScanOn = videoScanSettings[item.id] !== undefined ? videoScanSettings[item.id] : masterVideoScan;
@@ -317,10 +333,14 @@ function getDynamicStyles(isDark) {
     logoContainer: { flexDirection: 'row', alignItems: 'center', width: 105 },
     logoText: { color: isDark ? '#FFF' : '#000', fontSize: 16, fontWeight: 'bold', marginLeft: 4 },
     searchBar: { flex: 1, flexDirection: 'row', backgroundColor: isDark ? '#222' : '#F0F0F0', borderRadius: 20, marginHorizontal: 8, paddingHorizontal: 12, alignItems: 'center', height: 38 },
+    
     topChannelsContainer: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: isDark ? '#222' : '#EAEAEA', marginBottom: 10 },
-    topChannelItem: { alignItems: 'center', marginHorizontal: 8, width: 70 },
+    topChannelWrapper: { alignItems: 'center', marginHorizontal: 8, width: 72 },
+    topChannelItem: { alignItems: 'center', width: '100%' },
     topChannelLogo: { width: 56, height: 56, borderRadius: 28, backgroundColor: isDark ? '#333' : '#EEE', borderWidth: 1, borderColor: isDark ? '#444' : '#DDD', resizeMode: 'cover' },
     topChannelName: { color: isDark ? '#FFF' : '#000', fontSize: 11, marginTop: 6, textAlign: 'center' },
+    topChannelAiScanToggle: { marginTop: 8, paddingVertical: 4, paddingHorizontal: 4, borderRadius: 6, borderWidth: 1, alignItems: 'center', justifyContent: 'center', width: '100%' },
+
     videoCard: { marginBottom: 15 },
     thumbnailContainer: { position: 'relative' },
     thumbnail: { width: '100%', aspectRatio: 16 / 9, backgroundColor: isDark ? '#111' : '#EAEAEA' },
@@ -331,7 +351,6 @@ function getDynamicStyles(isDark) {
     textContainer: { flex: 1, paddingRight: 10 },
     title: { color: isDark ? '#FFF' : '#000', fontSize: 14, fontWeight: '500', marginBottom: 4 },
     meta: { color: isDark ? '#AAA' : '#666', fontSize: 12 },
-    // 🚨 Toggle Button Styles
     videoAiScanToggle: { padding: 6, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center', width: 60, marginLeft: 'auto' },
   });
 }
