@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+অimport React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Text, ActivityIndicator, TouchableOpacity, FlatList, Image, Dimensions, StatusBar, SafeAreaView, ScrollView, Modal, Alert, Platform, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
