@@ -8,8 +8,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 
+// 🚨 [AI PACKAGES]
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system/legacy';
+import { decode } from 'base64-arraybuffer';
+import * as jpeg from 'jpeg-js';
+import { Asset } from 'expo-asset';
+import FaceDetection from '@react-native-ml-kit/face-detection';
+import { loadTensorflowModel } from 'react-native-fast-tflite';
+
 const { width, height } = Dimensions.get('window');
-const HEADER_HEIGHT = height / 12; 
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 export default function SearchSettingScreen({ route }) {
@@ -17,6 +25,7 @@ export default function SearchSettingScreen({ route }) {
   const inputRef = useRef(null);
   const { isDarkMode } = useTheme();
   const { t } = useLanguage();
+  const __translate = t; // Alias for your original code usage
   const styles = getDynamicStyles(isDarkMode);
 
   const [query, setQuery] = useState('');
@@ -30,6 +39,15 @@ export default function SearchSettingScreen({ route }) {
 
   const [continuationToken, setContinuationToken] = useState(null);
   const [apiKey, setApiKey] = useState(null);
+
+  // 🤖 [AI STATES & REFS]
+  const genderModelRef = useRef(null);
+  const scanQueueRef = useRef([]); // স্ক্যান করার জন্য লাইনে থাকা থাম্বনেইল
+  const isQueueProcessingRef = useRef(false);
+  
+  // Status: 'pending' (কালো) -> 'scanning' (লোডিং) -> 'clean' (স্বাভাবিক) -> 'blur' (মহিলা)
+  const [thumbStates, setThumbStates] = useState({}); 
+  const [videoScanSettings, setVideoScanSettings] = useState({}); // ভিডিও স্ক্যানিং অন/অফ স্টেট
 
   useEffect(() => {
     const loadData = async () => {
@@ -56,6 +74,113 @@ export default function SearchSettingScreen({ route }) {
     }
   }, [route?.params?.initialSearch]);
 
+  // 🤖 [AI MODEL LOADER]
+  const loadGenderModelAsync = async () => {
+    if (!genderModelRef.current) {
+        try {
+            const asset = Asset.fromModule(require('../assets/gender_classification.tflite'));
+            await asset.downloadAsync();
+            genderModelRef.current = await loadTensorflowModel({ url: asset.localUri || asset.uri }, []);
+        } catch (e) { console.log('Model load error:', e); }
+    }
+  };
+
+  // 🤖 [AI IMAGE PROCESSOR]
+  const processImageForGender = async (uri) => {
+    try {
+        const faces = await FaceDetection.detect(uri);
+        if (faces && faces.length > 0) {
+            let hasFemale = false; let hasMale = false;
+
+            for (let i = 0; i < faces.length; i++) {
+                const face = faces[i];
+                const box = face.frame || face.bounds || {}; 
+                
+                let padding = 20; 
+                let faceWidth = box.width ?? 0;
+                let faceHeight = box.height ?? 0;
+
+                let originX = Math.floor(Math.max(0, (box.left ?? box.x ?? box.originX ?? 0) - padding));
+                let originY = Math.floor(Math.max(0, (box.top ?? box.y ?? box.originY ?? 0) - padding));
+                let cWidth = Math.floor(Math.max(10, faceWidth + padding * 2));
+                let cHeight = Math.floor(Math.max(10, faceHeight + padding * 2)); 
+                
+                const croppedFace = await ImageManipulator.manipulateAsync(
+                    uri, 
+                    [
+                        { crop: { originX, originY, width: cWidth, height: cHeight } },
+                        { resize: { width: 224, height: 224 } } 
+                    ], 
+                    { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+                );
+                
+                await loadGenderModelAsync();
+                const base64Data = await FileSystem.readAsStringAsync(croppedFace.uri, { encoding: FileSystem.EncodingType.Base64 });
+                const rawBuffer = new Uint8Array(decode(base64Data));
+                const rawImageData = jpeg.decode(rawBuffer, { useTArray: true });
+
+                const pureInputBuffer = new ArrayBuffer(224 * 224 * 3 * 4);
+                const inputData = new Float32Array(pureInputBuffer);
+
+                let rgbIndex = 0;
+                for (let j = 0; j < rawImageData.data.length; j += 4) {
+                    inputData[rgbIndex++] = rawImageData.data[j] / 255.0;     
+                    inputData[rgbIndex++] = rawImageData.data[j + 1] / 255.0; 
+                    inputData[rgbIndex++] = rawImageData.data[j + 2] / 255.0; 
+                }
+
+                const output = await genderModelRef.current.run([pureInputBuffer]);
+                let probability = output && output.length > 0 ? new Float32Array(output[0])[0] : 0;
+                
+                if (probability >= 0.50) { hasFemale = true; } 
+                else { hasMale = true; }
+            }
+            if (hasFemale && hasMale) return 'b'; 
+            if (hasFemale) return 'w';
+            if (hasMale) return 'm';
+        }
+        return 'none';
+    } catch (error) { return 'none'; }
+  };
+
+  // 🤖 [BACKGROUND QUEUE PROCESSOR]
+  useEffect(() => {
+    let isActive = true;
+    const processQueue = async () => {
+        if (isQueueProcessingRef.current || scanQueueRef.current.length === 0) return;
+        isQueueProcessingRef.current = true;
+
+        while(scanQueueRef.current.length > 0 && isActive) {
+            const item = scanQueueRef.current.shift(); // লাইনের প্রথমটি নেওয়া হলো
+            
+            setThumbStates(prev => ({...prev, [item.id]: 'scanning'}));
+
+            try {
+                // ছবি ডাউনলোড করা
+                const tempPath = `${FileSystem.cacheDirectory}thumb_search_${item.id}.jpg`;
+                await FileSystem.downloadAsync(item.url, tempPath);
+                
+                // স্ক্যান করা
+                const result = await processImageForGender(tempPath);
+                await FileSystem.deleteAsync(tempPath, { idempotent: true });
+
+                const needBlur = (result === 'w' || result === 'b');
+                setThumbStates(prev => ({...prev, [item.id]: needBlur ? 'blur' : 'clean'}));
+
+            } catch (error) {
+                setThumbStates(prev => ({...prev, [item.id]: 'clean'})); // এরর হলে ক্লিয়ার দেখাবে
+            }
+
+            // ডিভাইসকে একটু শান্ত হওয়ার সময় দেওয়া হচ্ছে
+            await new Promise(resolve => setTimeout(resolve, 200)); 
+        }
+        isQueueProcessingRef.current = false;
+    };
+
+    const intervalId = setInterval(processQueue, 1000);
+    return () => { isActive = false; clearInterval(intervalId); };
+  }, []);
+
   const handleTextChange = async (text) => {
     setQuery(text);
     if (showResults) setShowResults(false);
@@ -72,16 +197,15 @@ export default function SearchSettingScreen({ route }) {
   const saveHistory = async (text) => {
     const updatedHistory = [text, ...history.filter(item => item !== text)].slice(0, 15);
     setHistory(updatedHistory);
-    try { await AsyncStorage.setItem('myTubeSearchHistory', JSON.stringify(updatedHistory)); } catch (e) { console.log(e); }
+    try { await AsyncStorage.setItem('myTubeSearchHistory', JSON.stringify(updatedHistory)); } catch (e) {}
   };
 
   const removeHistoryItem = async (itemToRemove) => {
     const updatedHistory = history.filter(item => item !== itemToRemove);
     setHistory(updatedHistory);
-    try { await AsyncStorage.setItem('myTubeSearchHistory', JSON.stringify(updatedHistory)); } catch (e) { console.log(e); }
+    try { await AsyncStorage.setItem('myTubeSearchHistory', JSON.stringify(updatedHistory)); } catch (e) {}
   };
 
-  // 🎯 [NEW]: লিংক থেকে সরাসরি ভিডিও প্লে করার স্মার্ট হ্যান্ডলার
   const handleSearchSubmit = async (searchTerm) => {
     const text = typeof searchTerm === 'string' ? searchTerm : query;
     if (text.trim().length === 0) return;
@@ -94,13 +218,11 @@ export default function SearchSettingScreen({ route }) {
     setSuggestions([]);
     setShowResults(true);
 
-    // লিংকে স্পেস থাকলে মুছে ক্লিন করে আইডি বের করা
     const cleanUrl = text.replace(/\s/g, ''); 
     const ytLinkMatch = cleanUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:.*v=|.*\/|.*embed\/))([^&?]{11})/);
 
     InteractionManager.runAfterInteractions(() => {
       if (ytLinkMatch && ytLinkMatch[1]) {
-        // যদি লিংক হয়, তবে সার্চ না করে সরাসরি ডাটা ফেচ করে প্লেয়ারে পাঠাবে
         fetchSpecificVideoAndNavigate(ytLinkMatch[1]); 
       } else {
         fetchSearchResults(text.trim());
@@ -108,29 +230,24 @@ export default function SearchSettingScreen({ route }) {
     });
   };
 
-  // 🚀 [NEW]: লিংকের ভিডিওটির ফুল মেটা-ডাটা বের করার স্পেশাল ফাংশন
   const fetchSpecificVideoAndNavigate = async (targetId) => {
     setIsSearching(true);
     setSearchResults([]);
     try {
       const response = await fetch(`https://www.youtube.com/results?search_query=${targetId}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
       const htmlText = await response.text();
-
       let match = htmlText.match(/ytInitialData\s*=\s*({.+?});/) || htmlText.match(/var ytInitialData = (.*?);<\/script>/);
 
       if (match && match[1]) {
         const jsonData = JSON.parse(match[1]);
         let foundVideo = null;
-
         const extractNodes = (node) => {
           if (foundVideo) return;
           if (Array.isArray(node)) node.forEach(extractNodes);
           else if (node && typeof node === 'object') {
             if (node.videoRenderer && node.videoRenderer.videoId === targetId) {
               foundVideo = node.videoRenderer;
-            } else {
-              Object.values(node).forEach(extractNodes);
-            }
+            } else { Object.values(node).forEach(extractNodes); }
           }
         };
         extractNodes(jsonData);
@@ -140,33 +257,30 @@ export default function SearchSettingScreen({ route }) {
           const channelUrl = foundVideo.ownerText?.runs?.[0]?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || '';
 
           const fullVideoData = {
-            type: 'video', 
-            id: foundVideo.videoId, 
-            title: foundVideo.title?.runs?.[0]?.text,
-            channel: foundVideo.ownerText?.runs?.[0]?.text, 
-            views: foundVideo.shortViewCountText?.simpleText || 'N/A',
-            duration: foundVideo.lengthText?.simpleText || '', 
-            publishedTime: foundVideo.publishedTimeText?.simpleText || '',
+            type: 'video', id: foundVideo.videoId, title: foundVideo.title?.runs?.[0]?.text,
+            channel: foundVideo.ownerText?.runs?.[0]?.text, views: foundVideo.shortViewCountText?.simpleText || 'N/A',
+            duration: foundVideo.lengthText?.simpleText || '', publishedTime: foundVideo.publishedTimeText?.simpleText || '',
             thumbnail: foundVideo.thumbnail?.thumbnails?.[foundVideo.thumbnail.thumbnails.length - 1]?.url || `https://i.ytimg.com/vi/${foundVideo.videoId}/hqdefault.jpg`,
             avatar: avatarUrl ? (avatarUrl.startsWith('//') ? 'https:' + avatarUrl : avatarUrl) : 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg',
             channelUrl: channelUrl
           };
-
           setIsSearching(false);
-          // 🎯 সম্পূর্ণ ডাটা দিয়ে সরাসরি প্লেয়ার স্ক্রিনে নেভিগেট করা হচ্ছে
-          navigation.replace('Player', { videoId: targetId, videoData: fullVideoData });
+          // 🚨 ভিডিও প্লেয়ারে যাওয়ার সময় ইউজারের সেট করা স্ক্যানিং অপশন পাঠানো হচ্ছে
+          const doScan = videoScanSettings[targetId] || false; 
+          navigation.replace('Player', { videoId: targetId, videoData: fullVideoData, aiScanEnabled: doScan });
           return;
         }
       }
-    } catch (e) { console.log(e); }
-    
-    // কোনো কারণে নির্দিষ্ট ভিডিও না পেলে ফলব্যাক হিসেবে নরমাল সার্চ করবে
+    } catch (e) {}
     fetchSearchResults(targetId);
   };
 
   const fetchSearchResults = async (searchQuery) => {
     setIsSearching(true);
     setSearchResults([]);
+    scanQueueRef.current = []; // নতুন সার্চের সময় লাইন ক্লিয়ার করা হলো
+    setThumbStates({});
+
     try {
       const response = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}`, { headers: { 'User-Agent': DESKTOP_AGENT } });
       const htmlText = await response.text();
@@ -178,7 +292,16 @@ export default function SearchSettingScreen({ route }) {
 
       if (match && match[1]) {
         const jsonData = JSON.parse(match[1]);
-        const { finalFeed, nextToken } = processYouTubeData(jsonData);
+        const { finalFeed, nextToken, thumbQueue } = processYouTubeData(jsonData);
+        
+        // 🤖 থাম্বনেইলগুলো লাইনে যোগ করা হচ্ছে
+        const initialStates = {};
+        thumbQueue.forEach(item => {
+            initialStates[item.id] = 'pending';
+            scanQueueRef.current.push(item);
+        });
+        setThumbStates(prev => ({...prev, ...initialStates}));
+
         setSearchResults(finalFeed);
         setContinuationToken(nextToken);
       }
@@ -198,14 +321,22 @@ export default function SearchSettingScreen({ route }) {
         })
       });
       const data = await response.json();
-      const { finalFeed, nextToken } = processYouTubeData(data);
+      const { finalFeed, nextToken, thumbQueue } = processYouTubeData(data);
+
+      const initialStates = {};
+      thumbQueue.forEach(item => {
+          if (!thumbStates[item.id]) {
+              initialStates[item.id] = 'pending';
+              scanQueueRef.current.push(item);
+          }
+      });
+      setThumbStates(prev => ({...prev, ...initialStates}));
 
       setSearchResults(prev => [...prev, ...finalFeed]);
       setContinuationToken(nextToken);
     } catch (e) {} finally { setIsLoadingMore(false); }
   };
 
-  // 🚨 [RESTORED]: আপনার অরিজিনাল ডাটা প্রসেসর যেখানে শর্টস, চ্যানেল এবং ভিডিওর লজিক ছিল
   const processYouTubeData = (jsonData) => {
     const extractedVideos = [];
     const extractedShorts = [];
@@ -215,49 +346,36 @@ export default function SearchSettingScreen({ route }) {
     const extractNodes = (node) => {
       if (Array.isArray(node)) node.forEach(extractNodes);
       else if (node && typeof node === 'object') {
-
-        if (node.reelItemRenderer) {
-          extractedShorts.push(node.reelItemRenderer);
-        } else if (node.reelShelfRenderer) {
-          node.reelShelfRenderer.items?.forEach(item => {
-             if (item.reelItemRenderer) extractedShorts.push(item.reelItemRenderer);
-          });
-        } else if (node.videoRenderer) {
+        if (node.reelItemRenderer) extractedShorts.push(node.reelItemRenderer);
+        else if (node.reelShelfRenderer) node.reelShelfRenderer.items?.forEach(item => { if (item.reelItemRenderer) extractedShorts.push(item.reelItemRenderer); });
+        else if (node.videoRenderer) {
           const channelName = node.videoRenderer.ownerText?.runs?.[0]?.text || '';
           const titleText = node.videoRenderer.title?.runs?.[0]?.text?.toLowerCase() || '';
           const isShortBadge = node.videoRenderer.thumbnailOverlays?.some(overlay => overlay.thumbnailOverlayTimeStatusRenderer?.style === 'SHORTS');
-
           if (isShortBadge || !node.videoRenderer.lengthText || channelName.trim().startsWith('@') || titleText.includes('short') || titleText.includes('শর্ট')) {
              extractedShorts.push({
-                videoId: node.videoRenderer.videoId,
-                headline: { simpleText: node.videoRenderer.title?.runs?.[0]?.text },
+                videoId: node.videoRenderer.videoId, headline: { simpleText: node.videoRenderer.title?.runs?.[0]?.text },
                 viewCountText: { simpleText: node.videoRenderer.shortViewCountText?.simpleText || node.videoRenderer.viewCountText?.simpleText || 'N/A' },
                 thumbnail: node.videoRenderer.thumbnail 
              });
-          } else {
-             extractedVideos.push(node.videoRenderer);
-          }
-        } else if (node.channelRenderer) {
-          extractedChannels.push(node.channelRenderer);
-        } else if (node.continuationItemRenderer) {
-          nextToken = node.continuationItemRenderer.continuationEndpoint?.continuationCommand?.token;
-        } else {
-          Object.values(node).forEach(extractNodes);
-        }
+          } else { extractedVideos.push(node.videoRenderer); }
+        } else if (node.channelRenderer) extractedChannels.push(node.channelRenderer);
+        else if (node.continuationItemRenderer) nextToken = node.continuationItemRenderer.continuationEndpoint?.continuationCommand?.token;
+        else Object.values(node).forEach(extractNodes);
       }
     };
     extractNodes(jsonData);
 
     const finalFeed = [];
+    const thumbQueue = []; // 🤖 AI Queue এর জন্য এক্সট্রাক্ট করা হচ্ছে
 
     extractedChannels.forEach(ch => {
       const avatarUrl = ch.thumbnail?.thumbnails?.[ch.thumbnail.thumbnails.length - 1]?.url || ch.thumbnail?.thumbnails?.[0]?.url || 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg';
-      const channelUrl = ch.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || '';
       finalFeed.push({
         type: 'channel', id: ch.channelId, title: ch.title?.simpleText,
         avatar: avatarUrl.startsWith('//') ? 'https:' + avatarUrl : avatarUrl, 
         subscribers: ch.subscriberCountText?.simpleText,
-        channelUrl: channelUrl
+        channelUrl: ch.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || ''
       });
     });
 
@@ -267,51 +385,48 @@ export default function SearchSettingScreen({ route }) {
       const title = s.headline?.simpleText || s.title?.simpleText || 'Shorts';
       if (vidId && title && !uniqueShortsMap.has(vidId)) {
         let thumbUrl = `https://i.ytimg.com/vi/${vidId}/oardefault.jpg`;
-        if (s.thumbnail?.thumbnails?.length > 0) {
-            thumbUrl = s.thumbnail.thumbnails[0].url.split('?')[0]; 
-        }
-
-        uniqueShortsMap.set(vidId, {
-          id: vidId, title: title, views: s.viewCountText?.simpleText || 'N/A',
-          thumbnail: thumbUrl,
-          type: 'short'
-        });
+        if (s.thumbnail?.thumbnails?.length > 0) thumbUrl = s.thumbnail.thumbnails[0].url.split('?')[0]; 
+        
+        uniqueShortsMap.set(vidId, { id: vidId, title: title, views: s.viewCountText?.simpleText || 'N/A', thumbnail: thumbUrl, type: 'short' });
+        thumbQueue.push({ id: vidId, url: thumbUrl });
       }
     });
 
     const formattedShorts = Array.from(uniqueShortsMap.values()).slice(0, 15);
-
-    if (formattedShorts.length > 0) {
-      finalFeed.push({ type: 'shorts_shelf', id: 'shorts_' + Date.now(), shorts: formattedShorts });
-    }
+    if (formattedShorts.length > 0) finalFeed.push({ type: 'shorts_shelf', id: 'shorts_' + Date.now(), shorts: formattedShorts });
 
     const uniqueVideosMap = new Map();
     extractedVideos.forEach(v => {
       if (v.videoId && !uniqueVideosMap.has(v.videoId)) {
+        const thumbUrl = v.thumbnail?.thumbnails?.[v.thumbnail.thumbnails.length - 1]?.url;
         const avatarUrl = v.channelThumbnailSupportedRenderers?.channelThumbnailWithLinkRenderer?.thumbnail?.thumbnails?.[0]?.url;
-        const channelUrl = v.ownerText?.runs?.[0]?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || '';
-
+        
         uniqueVideosMap.set(v.videoId, {
           type: 'video', id: v.videoId, title: v.title?.runs?.[0]?.text,
           channel: v.ownerText?.runs?.[0]?.text, views: v.shortViewCountText?.simpleText,
           duration: v.lengthText?.simpleText, publishedTime: v.publishedTimeText?.simpleText,
-          thumbnail: v.thumbnail?.thumbnails?.[v.thumbnail.thumbnails.length - 1]?.url,
+          thumbnail: thumbUrl,
           avatar: avatarUrl ? (avatarUrl.startsWith('//') ? 'https:' + avatarUrl : avatarUrl) : 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Circle-icons-profile.svg',
-          channelUrl: channelUrl
+          channelUrl: v.ownerText?.runs?.[0]?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || ''
         });
+        thumbQueue.push({ id: v.videoId, url: thumbUrl });
       }
     });
 
     finalFeed.push(...Array.from(uniqueVideosMap.values()));
-    return { finalFeed, nextToken };
+    return { finalFeed, nextToken, thumbQueue };
+  };
+
+  const toggleVideoScan = (id) => {
+      setVideoScanSettings(prev => ({...prev, [id]: !prev[id]}));
   };
 
   const navigateToPlayer = (item) => {
     Keyboard.dismiss();
     inputRef.current?.blur();
     setTimeout(() => {
-        // এখানে আপনার আগের মতোই সম্পূর্ণ 'item' টি 'videoData' হিসেবে পাস হচ্ছে
-        navigation.navigate('Player', { videoId: item.id, videoData: item });
+        const doScan = videoScanSettings[item.id] || false;
+        navigation.navigate('Player', { videoId: item.id, videoData: item, aiScanEnabled: doScan });
     }, 0);
   };
 
@@ -319,19 +434,38 @@ export default function SearchSettingScreen({ route }) {
     Keyboard.dismiss();
     inputRef.current?.blur();
     setTimeout(() => {
-        navigation.navigate('Shorts', { initialVideoId: short.id, videoId: short.id, videoData: short });
+        const doScan = videoScanSettings[short.id] || false;
+        navigation.navigate('Shorts', { initialVideoId: short.id, videoId: short.id, videoData: short, aiScanEnabled: doScan });
     }, 0);
   };
 
-  const navigateToChannel = (item) => {
-    Keyboard.dismiss();
-    inputRef.current?.blur();
-    setTimeout(() => {
-        navigation.navigate('Channel', { channelName: item.channel || item.title, channelAvatar: item.avatar, channelUrl: item.channelUrl });
-    }, 0);
+  // 🤖 [THUMBNAIL RENDERER COMPONENT]
+  const renderAiThumbnail = (itemUrl, itemId, isShort = false) => {
+      const state = thumbStates[itemId] || 'pending';
+      const isDark = isDarkMode;
+
+      if (state === 'pending' || state === 'scanning') {
+          return (
+              <View style={[isShort ? styles.shortThumb : styles.thumbnail, { backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }]}>
+                  {state === 'scanning' ? <ActivityIndicator size="small" color="#00FF00" /> : <Ionicons name="scan-outline" size={30} color="#333" />}
+              </View>
+          );
+      }
+
+      if (state === 'blur') {
+          return (
+              <View style={[isShort ? styles.shortThumb : styles.thumbnail, { position: 'relative' }]}>
+                  <Image source={{ uri: itemUrl }} style={[StyleSheet.absoluteFillObject]} blurRadius={30} />
+                  <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' }]}>
+                      <Ionicons name="eye-off" size={isShort ? 30 : 40} color="rgba(255,255,255,0.7)" />
+                  </View>
+              </View>
+          );
+      }
+
+      return <Image source={{ uri: itemUrl }} style={isShort ? styles.shortThumb : styles.thumbnail} />;
   };
 
-  // 🚨 [RESTORED]: আপনার অরিজিনাল renderItem যেখানে Shorts, Channels এবং Video এর ডিজাইন ছিল
   const renderItem = ({ item }) => {
     if (item.type === 'shorts_shelf') {
       return (
@@ -346,13 +480,23 @@ export default function SearchSettingScreen({ route }) {
             data={item.shorts} 
             keyExtractor={(short, index) => short.id + '_' + index.toString()} 
             renderItem={({item: short}) => (
-              <TouchableOpacity style={styles.shortCard} activeOpacity={0.9} onPress={() => navigateToShorts(short)}>
-                <Image source={{ uri: short.thumbnail }} style={styles.shortThumb} />
-                <View style={styles.shortOverlay}>
-                  <Text style={styles.shortTitle} numberOfLines={2}>{short.title}</Text>
-                  <Text style={styles.shortViews}>{short.views}</Text>
-                </View>
-              </TouchableOpacity>
+              <View style={styles.shortCardWrapper}>
+                  <TouchableOpacity style={styles.shortCard} activeOpacity={0.9} onPress={() => navigateToShorts(short)}>
+                    {renderAiThumbnail(short.thumbnail, short.id, true)}
+                    <View style={styles.shortOverlay}>
+                      <Text style={styles.shortTitle} numberOfLines={2}>{short.title}</Text>
+                      <Text style={styles.shortViews}>{short.views}</Text>
+                    </View>
+                  </TouchableOpacity>
+                  {/* 🚨 Shorts এর জন্য Video AI Scan টগল */}
+                  <TouchableOpacity 
+                      style={[styles.aiScanToggleBtn, { backgroundColor: videoScanSettings[short.id] ? '#00BFA5' : '#444' }]} 
+                      onPress={() => toggleVideoScan(short.id)}
+                  >
+                      <Ionicons name={videoScanSettings[short.id] ? "scan-outline" : "scan"} size={14} color="#FFF" />
+                      <Text style={styles.aiScanToggleText}>{videoScanSettings[short.id] ? 'AI Scan: ON' : 'AI Scan: OFF'}</Text>
+                  </TouchableOpacity>
+              </View>
           )} />
         </View>
       );
@@ -362,19 +506,27 @@ export default function SearchSettingScreen({ route }) {
       return (
         <View style={styles.videoCard}>
           <TouchableOpacity activeOpacity={0.9} onPress={() => navigateToPlayer(item)}>
-            <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
+            {renderAiThumbnail(item.thumbnail, item.id, false)}
             {item.duration && <View style={styles.duration}><Text style={styles.durationText}>{item.duration}</Text></View>}
           </TouchableOpacity>
           <View style={styles.videoInfo}>
-            <TouchableOpacity activeOpacity={0.8} onPress={() => navigateToChannel(item)}>
-              <Image source={{ uri: item.avatar }} style={styles.channelAvatar} />
-            </TouchableOpacity>
+            <Image source={{ uri: item.avatar }} style={styles.channelAvatar} />
             <View style={styles.textContainer}>
               <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
-              <TouchableOpacity activeOpacity={0.8} onPress={() => navigateToChannel(item)}>
-                <Text style={styles.videoMeta}>{item.channel} • {item.views} • {item.publishedTime}</Text>
-              </TouchableOpacity>
+              <Text style={styles.videoMeta}>{item.channel} • {item.views} • {item.publishedTime}</Text>
             </View>
+            
+            {/* 🚨 Video এর জন্য AI Scan টগল */}
+            <TouchableOpacity 
+                style={[styles.videoAiScanToggle, { borderColor: videoScanSettings[item.id] ? '#00BFA5' : '#555' }]} 
+                onPress={() => toggleVideoScan(item.id)}
+            >
+                <Ionicons name="hardware-chip-outline" size={16} color={videoScanSettings[item.id] ? '#00BFA5' : '#888'} />
+                <Text style={{ fontSize: 10, color: videoScanSettings[item.id] ? '#00BFA5' : '#888', marginTop: 2, fontWeight: 'bold' }}>
+                    {videoScanSettings[item.id] ? 'SCAN ON' : 'SCAN OFF'}
+                </Text>
+            </TouchableOpacity>
+
           </View>
         </View>
       );
@@ -382,13 +534,13 @@ export default function SearchSettingScreen({ route }) {
 
     if (item.type === 'channel') {
       return (
-        <TouchableOpacity style={styles.channelRow} onPress={() => navigateToChannel(item)}>
+        <View style={styles.channelRow}>
           <Image source={{ uri: item.avatar }} style={styles.channelBigAvatar} />
           <View style={{ flex: 1, marginLeft: 15 }}>
             <Text style={styles.channelTitleMain}>{item.title}</Text>
             <Text style={styles.channelMetaMain}>{item.subscribers} • Channel</Text>
           </View>
-        </TouchableOpacity>
+        </View>
       );
     }
   };
@@ -409,18 +561,11 @@ export default function SearchSettingScreen({ route }) {
 
         <View style={styles.searchBar}>
           <TextInput 
-            ref={inputRef} 
-            style={styles.input} 
-            placeholder={__translate('Search...')} 
-            placeholderTextColor={isDarkMode ? '#888' : '#666'} 
-            value={query} 
-            onChangeText={handleTextChange} 
-            onSubmitEditing={() => handleSearchSubmit(query)} 
-            onTouchStart={() => {
-              if (showResults) setShowResults(false);
-            }}
-            autoCorrect={false}
-            autoCapitalize="none"
+            ref={inputRef} style={styles.input} placeholder={__translate('Search...')} 
+            placeholderTextColor={isDarkMode ? '#888' : '#666'} value={query} 
+            onChangeText={handleTextChange} onSubmitEditing={() => handleSearchSubmit(query)} 
+            onTouchStart={() => { if (showResults) setShowResults(false); }}
+            autoCorrect={false} autoCapitalize="none"
           />
           {query.length > 0 && (
             <TouchableOpacity onPress={() => { setQuery(''); setShowResults(false); inputRef.current?.focus(); }}>
@@ -433,15 +578,13 @@ export default function SearchSettingScreen({ route }) {
       <View style={{ flex: 1 }}>
         {!showResults ? (
           <FlatList 
-            data={query ? suggestions : history} 
-            keyExtractor={(item, index) => index.toString()} 
+            data={query ? suggestions : history} keyExtractor={(item, index) => index.toString()} 
             renderItem={({item}) => (
               <View style={styles.historyRowContainer}>
                 <TouchableOpacity style={styles.historyClickableArea} onPress={() => handleSearchSubmit(item)}>
                   <Ionicons name={query ? "search-outline" : "time-outline"} size={22} color={isDarkMode ? '#AAA' : '#555'} />
                   <Text style={styles.historyText}>{item}</Text>
                 </TouchableOpacity>
-
                 {!query && (
                   <TouchableOpacity style={styles.deleteBtn} onPress={() => removeHistoryItem(item)}>
                     <Ionicons name="close" size={22} color={isDarkMode ? '#FFF' : '#000'} />
@@ -455,17 +598,11 @@ export default function SearchSettingScreen({ route }) {
               <View style={styles.center}><ActivityIndicator size="large" color="#FF0000" /></View>
             ) : (
               <FlatList 
-                data={searchResults} 
-                keyExtractor={(item, index) => item.id + '_' + index.toString()} 
-                renderItem={renderItem} 
-                onEndReached={handleLoadMore} 
-                onEndReachedThreshold={0.5} 
+                data={searchResults} keyExtractor={(item, index) => item.id + '_' + index.toString()} 
+                renderItem={renderItem} onEndReached={handleLoadMore} onEndReachedThreshold={0.5} 
                 ListFooterComponent={isLoadingMore && <ActivityIndicator color="#FF0000" style={{ margin: 20 }} />} 
-                contentContainerStyle={{ paddingBottom: 20 }} 
-                removeClippedSubviews={true} 
-                initialNumToRender={10} 
-                maxToRenderPerBatch={10} 
-                windowSize={5} 
+                contentContainerStyle={{ paddingBottom: 20 }} removeClippedSubviews={true} 
+                initialNumToRender={10} maxToRenderPerBatch={10} windowSize={5} 
               />
             )}
           </>
@@ -490,22 +627,26 @@ function getDynamicStyles(isDark) {
     deleteBtn: { padding: 5, paddingLeft: 15 },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     videoCard: { marginBottom: 15 },
-    thumbnail: { width: '100%', aspectRatio: 16 / 9, backgroundColor: isDark ? '#111' : '#ddd' },
+    thumbnail: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000' },
     duration: { position: 'absolute', bottom: 8, right: 8, backgroundColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.08)', padding: 4, borderRadius: 4 },
     durationText: { color: isDark ? '#FFF' : '#000', fontSize: 12 },
-    videoInfo: { flexDirection: 'row', padding: 12 },
+    videoInfo: { flexDirection: 'row', padding: 12, alignItems: 'center' },
     channelAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 12, backgroundColor: isDark ? '#333' : '#ccc' },
     textContainer: { flex: 1 },
     videoTitle: { color: isDark ? '#FFF' : '#000', fontSize: 14, fontWeight: '500' },
     videoMeta: { color: isDark ? '#AAA' : '#666', fontSize: 12, marginTop: 4 },
+    videoAiScanToggle: { padding: 6, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center', width: 60, marginLeft: 10 },
     shortsShelf: { paddingVertical: 15, borderBottomWidth: 4, borderBottomColor: isDark ? '#222' : '#e6e6e6' },
     shelfHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, marginBottom: 12 },
     shelfTitle: { color: isDark ? '#FFF' : '#000', fontSize: 18, fontWeight: 'bold', marginLeft: 8 },
-    shortCard: { width: Dimensions.get('window').width * 0.4, height: Dimensions.get('window').width * 0.72, marginRight: 12, borderRadius: 12, overflow: 'hidden', marginLeft: 12, backgroundColor: isDark ? '#222' : '#fff' },
+    shortCardWrapper: { marginLeft: 12, marginRight: 4, alignItems: 'center' },
+    shortCard: { width: Dimensions.get('window').width * 0.4, height: Dimensions.get('window').width * 0.72, borderRadius: 12, overflow: 'hidden', backgroundColor: '#000' },
     shortThumb: { width: '100%', height: '100%' },
     shortOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 8, backgroundColor: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.08)' },
     shortTitle: { color: isDark ? '#FFF' : '#000', fontSize: 13, fontWeight: 'bold', marginBottom: 2 },
     shortViews: { color: isDark ? '#CCC' : '#666', fontSize: 11 },
+    aiScanToggleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 20, width: '90%' },
+    aiScanToggleText: { color: '#FFF', fontSize: 10, fontWeight: 'bold', marginLeft: 4 },
     channelRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: isDark ? '#222' : '#e6e6e6' },
     channelBigAvatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: isDark ? '#333' : '#ccc' },
     channelTitleMain: { color: isDark ? '#FFF' : '#000', fontSize: 16, fontWeight: 'bold' },
