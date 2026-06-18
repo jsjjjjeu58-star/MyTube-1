@@ -10,7 +10,6 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import * as WebBrowser from 'expo-web-browser'; 
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
-// 🚨 [REAL AI INTEGRATION PACKAGES]
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy'; 
 import { decode } from 'base64-arraybuffer'; 
@@ -108,19 +107,16 @@ export default function GlobalPlayer() {
   
   const [showAiMenu, setShowAiMenu] = useState(false);
   const [showAiTimeMenu, setShowAiTimeMenu] = useState(false);
-  const [showAiBlurMenu, setShowAiBlurMenu] = useState(false);
 
   const [currentSpeed, setCurrentSpeed] = useState(1.0);
-  
   const [scanInterval, setScanInterval] = useState(3.0);
+  
   const [blurTarget, setBlurTarget] = useState('w'); 
-
-  // 🚨 [NEW] AI Scan Enable/Disable States
   const [aiScanEnabled, setAiScanEnabled] = useState(false);
-  const aiScanEnabledRef = useRef(false);
 
   const scanIntervalRef = useRef(3.0);
   const blurTargetRef = useRef('w');
+  const aiScanEnabledRef = useRef(false);
   const lowStreamUrlRef = useRef(null); 
 
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
@@ -157,16 +153,33 @@ export default function GlobalPlayer() {
           } catch(e){}
       };
       loadAiSettings();
+
+      // 🚨 [INSTANT SYNC] - Settings Screen থেকে পরিবর্তন হলে সাথে সাথে কাজ করবে
+      const targetSub = DeviceEventEmitter.addListener('aiBlurTargetChanged', (newTarget) => {
+          setBlurTarget(newTarget);
+          blurTargetRef.current = newTarget;
+      });
+
+      const scanSub = DeviceEventEmitter.addListener('aiVideoScanChanged', (newScan) => {
+          const isEnabled = newScan === 'true';
+          setAiScanEnabled(isEnabled);
+          aiScanEnabledRef.current = isEnabled;
+          if (!isEnabled) {
+              setIsBlurredUI(false);
+              isBlurredRef.current = false;
+          } else {
+              startAiPipe(parseFloat(targetScanSecRef.current.toFixed(1)));
+          }
+      });
+
+      return () => { targetSub.remove(); scanSub.remove(); };
   }, []);
 
   useEffect(() => {
     const setupAudio = async () => {
       try {
         await setAudioModeAsync({
-          staysActiveInBackground: true,
-          playsInSilentModeIOS: true,
-          shouldDuckAndroid: true,
-          playThroughEarpieceAndroid: false,
+          staysActiveInBackground: true, playsInSilentModeIOS: true, shouldDuckAndroid: true, playThroughEarpieceAndroid: false,
         });
       } catch (e) {}
     };
@@ -184,9 +197,7 @@ export default function GlobalPlayer() {
     if (!videoSource) return; 
     try { p.loop = false; } catch(e) {}
     safeSetRate(p, currentSpeed); 
-    if (streamModeRef.current === 'separate') {
-        safeSetMuted(p, true); 
-    }
+    if (streamModeRef.current === 'separate') safeSetMuted(p, true); 
   });
 
   const triggerControls = () => {
@@ -200,9 +211,7 @@ export default function GlobalPlayer() {
         if (nextAppState.match(/inactive|background/)) {
             if (!isAudioModeRef.current) {
                 if (player && player.playing) player.pause();
-                if (syncAudioRef.current && syncAudioRef.current.playing) {
-                    syncAudioRef.current.pause();
-                }
+                if (syncAudioRef.current && syncAudioRef.current.playing) syncAudioRef.current.pause();
             }
         }
     });
@@ -218,10 +227,7 @@ export default function GlobalPlayer() {
       if (currentRoute !== 'Player' && currentRoute !== 'PlayerScreen') {
           setPlayerState((prev) => {
               if (prev === 'full' || prev === 'center' || prev === 'fullscreen') {
-                  if (isFullscreen) {
-                      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-                      setIsFullscreen(false);
-                  }
+                  if (isFullscreen) { ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP); setIsFullscreen(false); }
                   return 'mini';
               }
               return prev;
@@ -267,22 +273,15 @@ export default function GlobalPlayer() {
     try {
         if (isFullscreen) {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-            setIsFullscreen(false);
-            setPlayerState('full'); 
-            scale.setValue(1); 
-            baseScaleRef.current = 1;
+            setIsFullscreen(false); setPlayerState('full'); scale.setValue(1); baseScaleRef.current = 1;
         } else {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-            setIsFullscreen(true);
-            setPlayerState('fullscreen');
-            scale.setValue(1); 
-            baseScaleRef.current = 1;
+            setIsFullscreen(true); setPlayerState('fullscreen'); scale.setValue(1); baseScaleRef.current = 1;
         }
     } catch (error) {}
   };
 
   const startAiPipe = async (time) => {
-      // 🚨 [NEW] স্ক্যানিং অফ থাকলে পাইপ রিকোয়েস্ট যাবে না
       if (!lowStreamUrlRef.current || !aiScanEnabledRef.current) return;
       try {
           await fetch(`${MY_API_SERVER}/api/start-ai-pipe?url=${encodeURIComponent(lowStreamUrlRef.current)}&time=${time}&interval=${scanIntervalRef.current}`);
@@ -293,26 +292,20 @@ export default function GlobalPlayer() {
       setCurrentTime(newTime); 
       targetScanSecRef.current = parseFloat(newTime.toFixed(1));
       
-      // 🚨 [NEW] স্ক্যানিং অন থাকলেই কেবল পাইপ রিস্টার্ট হবে
-      if (aiScanEnabledRef.current) {
-          startAiPipe(targetScanSecRef.current);
-      }
+      if (aiScanEnabledRef.current) startAiPipe(targetScanSecRef.current);
 
       try {
           if (isAudioModeRef.current) {
               safeSeek(syncAudioRef.current, newTime); 
           } else {
               safeSeek(player, newTime); 
-              if (streamModeRef.current === 'separate' && syncAudioRef.current) {
-                  safeSeek(syncAudioRef.current, newTime); 
-              }
+              if (streamModeRef.current === 'separate' && syncAudioRef.current) safeSeek(syncAudioRef.current, newTime); 
           }
       } catch (error) { }
   };
 
   useEffect(() => {
     const playSub = DeviceEventEmitter.addListener('playVideo', async (data) => {
-      // 🚨 [NEW] সার্চ স্ক্রিন থেকে পাঠানো ডাটা রিসিভ করে স্ক্যানিং অন/অফ করা হচ্ছে
       const scanStatus = data.aiScanEnabled || false;
       setAiScanEnabled(scanStatus);
       aiScanEnabledRef.current = scanStatus;
@@ -328,33 +321,12 @@ export default function GlobalPlayer() {
       setVideoData(data.videoData);
       setPlayerState('full');
       
-      setStreamUrl(null);
-      setVideoSource(null); 
-      setLowStreamUrl(null); 
-      lowStreamUrlRef.current = null;
-      resumeTimeRef.current = 0; 
+      setStreamUrl(null); setVideoSource(null); setLowStreamUrl(null); lowStreamUrlRef.current = null; resumeTimeRef.current = 0; 
+      setFallbackData(null); setIsAudioMode(false); isAudioModeRef.current = false; cachedAudioUrlRef.current = null; pendingSeekRef.current = null;
       
-      setFallbackData(null);
-      setIsAudioMode(false);
-      isAudioModeRef.current = false;
-      cachedAudioUrlRef.current = null;
-      pendingSeekRef.current = null;
-      
-      aiDataMapRef.current = {};
-      targetScanSecRef.current = 0; 
-      isAiProcessingRef.current = false;
-      setFrameList([]); 
-
-      setIsBlurredUI(false);
-      isBlurredRef.current = false;
-
-      setCurrentTime(0);
-      setBuffered(0);
-      scale.setValue(1);
-      baseScaleRef.current = 1;
-      triggerControls();
-
-      safeReleaseAudio();
+      aiDataMapRef.current = {}; targetScanSecRef.current = 0; isAiProcessingRef.current = false; setFrameList([]); 
+      setIsBlurredUI(false); isBlurredRef.current = false; setCurrentTime(0); setBuffered(0);
+      scale.setValue(1); baseScaleRef.current = 1; triggerControls(); safeReleaseAudio();
 
       const targetQuality = global.appSettings?.normalVideo || '720p';
       fetchStreamUrl(data.videoId, targetQuality, fetchIdRef.current);
@@ -367,8 +339,7 @@ export default function GlobalPlayer() {
       if (mode) {
           resumeTimeRef.current = player ? player.currentTime : currentTime;
           if (player) player.pause();
-          setVideoSource(null); 
-          setIsPlayingUI(true); 
+          setVideoSource(null); setIsPlayingUI(true); 
 
           if (streamModeRef.current === 'separate' && syncAudioRef.current) {
               if (!syncAudioRef.current.playing) syncAudioRef.current.play();
@@ -394,25 +365,17 @@ export default function GlobalPlayer() {
           }
       } else {
           let resumeVideoTime = resumeTimeRef.current;
-
           if (syncAudioRef.current) {
               resumeVideoTime = syncAudioRef.current.currentTime;
-              if (streamModeRef.current !== 'separate') {
-                  safeReleaseAudio();
-              } else {
-                  syncAudioRef.current.pause();
-              }
+              if (streamModeRef.current !== 'separate') safeReleaseAudio();
+              else syncAudioRef.current.pause();
           }
-
           resumeTimeRef.current = resumeVideoTime;
           setVideoSource(streamUrl); 
       }
     });
 
-    return () => {
-        playSub.remove();
-        audioModeSub.remove();
-    };
+    return () => { playSub.remove(); audioModeSub.remove(); };
   }, [isFullscreen, streamUrl]);
 
   useEffect(() => {
@@ -420,14 +383,10 @@ export default function GlobalPlayer() {
       if (!isAudioMode && videoSource && player) {
           timeoutId = setTimeout(async () => {
               try {
-                  if (resumeTimeRef.current > 0) {
-                      safeSeek(player, resumeTimeRef.current); 
-                  }
+                  if (resumeTimeRef.current > 0) safeSeek(player, resumeTimeRef.current); 
                   player.play();
-
                   if (streamModeRef.current === 'separate' && syncAudioRef.current) {
-                      safeSeek(syncAudioRef.current, resumeTimeRef.current); 
-                      syncAudioRef.current.play();
+                      safeSeek(syncAudioRef.current, resumeTimeRef.current); syncAudioRef.current.play();
                   }
               } catch (e) {}
           }, 800); 
@@ -453,11 +412,7 @@ export default function GlobalPlayer() {
           if (json.lowQualityUrl) {
               setLowStreamUrl(json.lowQualityUrl); 
               lowStreamUrlRef.current = json.lowQualityUrl;
-              
-              // 🚨 [NEW] স্ক্যানিং অন থাকলেই শুধু ভিডিও লোড হওয়ার পর পাইপ চালু হবে
-              if (aiScanEnabledRef.current) {
-                  startAiPipe(0);
-              }
+              if (aiScanEnabledRef.current) startAiPipe(0);
           }
           
           const resQ = parseInt(json.quality) || 720;
@@ -487,7 +442,6 @@ export default function GlobalPlayer() {
     }
   };
 
-  // 🤖 -------------------- AI ENGINE START -------------------- 🤖
   const loadGenderModelAsync = async () => {
       if (!genderModelRef.current) {
           try {
@@ -520,10 +474,7 @@ export default function GlobalPlayer() {
                   
                   const croppedFace = await ImageManipulator.manipulateAsync(
                       uri, 
-                      [
-                          { crop: { originX, originY, width, height } },
-                          { resize: { width: 224, height: 224 } } 
-                      ], 
+                      [{ crop: { originX, originY, width, height } }, { resize: { width: 224, height: 224 } }], 
                       { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
                   );
                   
@@ -568,10 +519,7 @@ export default function GlobalPlayer() {
 
           if (!isQueueActive) return;
 
-          console.log(`🚀 Zero-Data Pipe Engine Started... Scan Interval: ${scanIntervalRef.current}s`);
-
           while (isQueueActive) {
-              // 🚨 [NEW] স্ক্যানিং অফ থাকলে শুধু অপেক্ষা করবে
               if (!lowStreamUrlRef.current || !videoSource || !aiScanEnabledRef.current) {
                   await new Promise(r => setTimeout(r, 1000));
                   continue;
@@ -626,7 +574,6 @@ export default function GlobalPlayer() {
       processQueue();
       return () => { isQueueActive = false; };
   }, [player, videoSource]);
-  // 🤖 -------------------- AI ENGINE END -------------------- 🤖
 
   const handleSkip = async (amount, isSilent = false) => {
       let currentPosition = isAudioMode ? currentTime : (player ? player.currentTime : currentTime);
@@ -673,7 +620,6 @@ export default function GlobalPlayer() {
         if (isSyncingRef.current) return; 
 
         if (isAudioMode) {
-            // Audio Sync logic remains same
         } else {
             setIsPlayingUI(player?.playing || false);
             
@@ -682,7 +628,6 @@ export default function GlobalPlayer() {
                     setCurrentTime(player.currentTime);
                     if (player.duration > 0) setDuration(player.duration);
 
-                    // 🚨 [NEW] স্ক্যানিং অফ থাকলে ব্লার ইউআই ফোর্স অফ করা হচ্ছে
                     if (!aiScanEnabledRef.current) {
                         if (isBlurredRef.current) {
                             isBlurredRef.current = false;
@@ -810,11 +755,8 @@ export default function GlobalPlayer() {
 
   if (playerState === 'hidden') return null;
   const isInteractiveFull = playerState === 'full' || playerState === 'center' || playerState === 'fullscreen';
-
   const bufferedWidth = duration > 0 ? `${(buffered / duration) * 100}%` : '0%';
-  
   const timeOptions = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0, 2.5, 3.0];
-  const blurOptions = [{label: 'Man', value: 'm'}, {label: 'Woman', value: 'w'}];
 
   return (
     <Animated.View 
@@ -836,12 +778,8 @@ export default function GlobalPlayer() {
                 {videoSource ? (
                     <View style={{ flex: 1, width: '100%', height: '100%' }}>
                         <VideoView 
-                            key={videoSource} 
-                            ref={videoViewRef} 
-                            player={player} 
-                            style={styles.video} 
-                            contentFit="contain"
-                            nativeControls={false} 
+                            key={videoSource} ref={videoViewRef} player={player} 
+                            style={styles.video} contentFit="contain" nativeControls={false} 
                         />
                         
                         {isBlurredUI && (
@@ -849,8 +787,7 @@ export default function GlobalPlayer() {
                                 <Image 
                                     source={{ uri: `https://img.youtube.com/vi/${currentVideoIdRef.current}/hqdefault.jpg` }}
                                     style={[StyleSheet.absoluteFillObject, { opacity: 0.5 }]}
-                                    blurRadius={25} 
-                                    resizeMode="cover"
+                                    blurRadius={25} resizeMode="cover"
                                 />
                                 <Ionicons name="eye-off-outline" size={60} color="rgba(255,255,255,0.8)" />
                                 <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 16, marginTop: 10, fontWeight: 'bold' }}>
@@ -864,21 +801,11 @@ export default function GlobalPlayer() {
 
             {isAudioMode && (
                 <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', zIndex: 2, backgroundColor: '#000' }]}>
-                    <Image 
-                        source={{ uri: `https://img.youtube.com/vi/${currentVideoIdRef.current}/hqdefault.jpg` }}
-                        style={[StyleSheet.absoluteFillObject, { opacity: 0.2 }]}
-                        resizeMode="cover"
-                    />
+                    <Image source={{ uri: `https://img.youtube.com/vi/${currentVideoIdRef.current}/hqdefault.jpg` }} style={[StyleSheet.absoluteFillObject, { opacity: 0.2 }]} resizeMode="cover" />
                     <Ionicons name="headset" size={70} color="#00BFA5" />
-                    <Text style={{ color: '#00BFA5', marginTop: 15, fontSize: 16, fontWeight: 'bold' }}>
-                        ব্যাকগ্রাউন্ড অডিও মোড চলছে
-                    </Text>
-                    <Text style={{ color: '#DDD', marginTop: 5, fontSize: 12 }}>
-                        ভিডিও পুরোপুরি বন্ধ আছে (ডাটা সাশ্রয়ী)
-                    </Text>
+                    <Text style={{ color: '#00BFA5', marginTop: 15, fontSize: 16, fontWeight: 'bold' }}>ব্যাকগ্রাউন্ড অডিও মোড চলছে</Text>
                 </View>
             )}
-
           </View>
         )}
 
@@ -917,32 +844,14 @@ export default function GlobalPlayer() {
              <View style={styles.bottomBarWrapper} pointerEvents="box-none">
                 
                 {frameList.length > 0 && aiScanEnabled && (
-                    <ScrollView 
-                        horizontal 
-                        showsHorizontalScrollIndicator={false} 
-                        style={styles.storyboardContainer}
-                        contentContainerStyle={{ paddingHorizontal: 15 }}
-                    >
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.storyboardContainer} contentContainerStyle={{ paddingHorizontal: 15 }}>
                         {frameList.map((frame, index) => (
-                            <TouchableOpacity 
-                                key={index} 
-                                style={styles.frameItem} 
-                                onPress={() => seekTo(frame.time)} 
-                            >
+                            <TouchableOpacity key={index} style={styles.frameItem} onPress={() => seekTo(frame.time)}>
                                 <Image source={{ uri: frame.url }} style={styles.frameImg} />
-                                <View style={styles.frameTimeBox}>
-                                    <Text style={styles.frameTimeText}>{formatTime(frame.time)}</Text>
-                                </View>
+                                <View style={styles.frameTimeBox}><Text style={styles.frameTimeText}>{formatTime(frame.time)}</Text></View>
                                 {frame.gender !== 'none' && (
-                                    <View style={[
-                                        styles.badge, 
-                                        frame.gender === 'w' ? styles.badgeW : 
-                                        frame.gender === 'm' ? styles.badgeM : 
-                                        styles.badgeBoth 
-                                    ]}>
-                                        <Text style={styles.badgeText}>
-                                            {frame.gender === 'w' ? 'W' : frame.gender === 'm' ? 'M' : 'W+M'}
-                                        </Text>
+                                    <View style={[styles.badge, frame.gender === 'w' ? styles.badgeW : frame.gender === 'm' ? styles.badgeM : styles.badgeBoth]}>
+                                        <Text style={styles.badgeText}>{frame.gender === 'w' ? 'W' : frame.gender === 'm' ? 'M' : 'W+M'}</Text>
                                     </View>
                                 )}
                             </TouchableOpacity>
@@ -958,35 +867,17 @@ export default function GlobalPlayer() {
                             <View style={[styles.bufferedBar, { width: bufferedWidth }]} />
                         </View>
                         <Slider 
-                          style={{ flex: 1, height: 40 }}
-                          minimumValue={0}
-                          maximumValue={duration}
-                          value={currentTime}
-                          onSlidingStart={() => {
-                              isSlidingRef.current = true; 
-                              if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-                          }}
+                          style={{ flex: 1, height: 40 }} minimumValue={0} maximumValue={duration} value={currentTime}
+                          onSlidingStart={() => { isSlidingRef.current = true; if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); }}
                           onValueChange={(v) => setCurrentTime(v)} 
-                          onSlidingComplete={async (v) => {
-                              await seekTo(v);
-                              isSlidingRef.current = false; 
-                              triggerControls();
-                          }}
-                          minimumTrackTintColor="#FF0000"
-                          maximumTrackTintColor="transparent" 
-                          thumbTintColor="#FF0000"
+                          onSlidingComplete={async (v) => { await seekTo(v); isSlidingRef.current = false; triggerControls(); }}
+                          minimumTrackTintColor="#FF0000" maximumTrackTintColor="transparent" thumbTintColor="#FF0000"
                         />
                     </View>
 
                     <Text style={styles.timeTextRight}>{formatTime(duration)}</Text>
-                    
-                    <TouchableOpacity style={{marginLeft: 12}} onPress={() => setShowSettingsMenu(true)}>
-                        <Ionicons name="settings-outline" size={22} color="#FFF" />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={{marginLeft: 12}} onPress={toggleFullscreen}>
-                        <Ionicons name={isFullscreen ? "contract" : "expand"} size={22} color="#FFF" />
-                    </TouchableOpacity>
+                    <TouchableOpacity style={{marginLeft: 12}} onPress={() => setShowSettingsMenu(true)}><Ionicons name="settings-outline" size={22} color="#FFF" /></TouchableOpacity>
+                    <TouchableOpacity style={{marginLeft: 12}} onPress={toggleFullscreen}><Ionicons name={isFullscreen ? "contract" : "expand"} size={22} color="#FFF" /></TouchableOpacity>
                 </View>
              </View>
           </View>
@@ -996,23 +887,18 @@ export default function GlobalPlayer() {
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettingsMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
                     <Text style={styles.modalTitle}>Player Settings</Text>
-                    
                     <TouchableOpacity style={styles.menuItem} onPress={() => { setShowSettingsMenu(false); setShowAiMenu(true); }}>
                         <Ionicons name="hardware-chip-outline" size={20} color="#00FF00" style={styles.menuIcon} />
                         <Text style={[styles.menuText, { color: '#00FF00' }]}>System AI Setting</Text>
                     </TouchableOpacity>
-
                     <TouchableOpacity style={styles.menuItem} onPress={() => {
                         setShowSettingsMenu(false);
                         const ytUrl = `https://www.youtube.com/watch?v=${currentVideoIdRef.current}?app=desktop`; 
-                        Linking.openURL(`googlechrome://navigate?url=${ytUrl}`).catch(() => {
-                            WebBrowser.openBrowserAsync(ytUrl, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN });
-                        });
+                        Linking.openURL(`googlechrome://navigate?url=${ytUrl}`).catch(() => { WebBrowser.openBrowserAsync(ytUrl, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN }); });
                     }}>
                         <Ionicons name="globe-outline" size={20} color="#FFF" style={styles.menuIcon} />
                         <Text style={styles.menuText}>Open in Browser</Text>
                     </TouchableOpacity>
-
                     <TouchableOpacity style={styles.menuItem} onPress={() => { setShowSettingsMenu(false); setShowSpeedMenu(true); }}>
                         <Ionicons name="speedometer-outline" size={20} color="#FFF" style={styles.menuIcon} />
                         <Text style={styles.menuText}>Playback Speed ({currentSpeed}x)</Text>
@@ -1025,34 +911,21 @@ export default function GlobalPlayer() {
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowAiMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
                     <Text style={styles.modalTitle}>System AI Setting</Text>
-                    
-                    {/* 🚨 [NEW] ভিডিও চলাকালীন স্ক্যানিং অন/অফ করার টগল */}
+                    <TouchableOpacity style={styles.menuItem} onPress={() => { setShowAiMenu(false); setShowAiTimeMenu(true); }}>
+                        <Ionicons name="timer-outline" size={20} color="#FFF" style={styles.menuIcon} />
+                        <Text style={styles.menuText}>AI Scanning Time ({scanInterval}s)</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity style={styles.menuItem} onPress={() => {
                         const newVal = !aiScanEnabled;
-                        setAiScanEnabled(newVal);
-                        aiScanEnabledRef.current = newVal;
-                        if (newVal) {
-                            startAiPipe(parseFloat(currentTime.toFixed(1)));
-                        } else {
-                            setIsBlurredUI(false);
-                            isBlurredRef.current = false;
-                        }
+                        setAiScanEnabled(newVal); aiScanEnabledRef.current = newVal;
+                        if (newVal) startAiPipe(parseFloat(currentTime.toFixed(1)));
+                        else { setIsBlurredUI(false); isBlurredRef.current = false; }
                         setShowAiMenu(false);
                     }}>
                         <Ionicons name={aiScanEnabled ? "scan" : "scan-outline"} size={20} color={aiScanEnabled ? "#00FF00" : "#FFF"} style={styles.menuIcon} />
                         <Text style={[styles.menuText, aiScanEnabled && { color: '#00FF00', fontWeight: 'bold' }]}>
                             {aiScanEnabled ? 'AI Scanning: ON' : 'AI Scanning: OFF'}
                         </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.menuItem} onPress={() => { setShowAiMenu(false); setShowAiTimeMenu(true); }}>
-                        <Ionicons name="timer-outline" size={20} color="#FFF" style={styles.menuIcon} />
-                        <Text style={styles.menuText}>AI Scanning Time ({scanInterval}s)</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.menuItem} onPress={() => { setShowAiMenu(false); setShowAiBlurMenu(true); }}>
-                        <Ionicons name="eye-off-outline" size={20} color="#FFF" style={styles.menuIcon} />
-                        <Text style={styles.menuText}>Video Blur System ({blurTarget === 'w' ? 'Woman' : 'Man'})</Text>
                     </TouchableOpacity>
                 </TouchableOpacity>
             </TouchableOpacity>
@@ -1065,39 +938,15 @@ export default function GlobalPlayer() {
                     <ScrollView showsVerticalScrollIndicator={false}>
                         {timeOptions.map(t => (
                             <TouchableOpacity key={t} style={styles.menuItem} onPress={async () => {
-                                setScanInterval(t);
-                                scanIntervalRef.current = t;
+                                setScanInterval(t); scanIntervalRef.current = t;
                                 await AsyncStorage.setItem('ai_interval', t.toString());
-                                setShowAiTimeMenu(false);
-                                targetScanSecRef.current = parseFloat(currentTime.toFixed(1));
+                                setShowAiTimeMenu(false); targetScanSecRef.current = parseFloat(currentTime.toFixed(1));
                                 if (aiScanEnabledRef.current) startAiPipe(targetScanSecRef.current);
                             }}>
-                                <Text style={[styles.menuText, scanInterval === t && {color: '#FF0000', fontWeight: 'bold'}]}>
-                                    {t} Seconds
-                                </Text>
+                                <Text style={[styles.menuText, scanInterval === t && {color: '#FF0000', fontWeight: 'bold'}]}>{t} Seconds</Text>
                             </TouchableOpacity>
                         ))}
                     </ScrollView>
-                </TouchableOpacity>
-            </TouchableOpacity>
-        </Modal>
-
-        <Modal visible={showAiBlurMenu} transparent animationType="fade">
-            <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowAiBlurMenu(false)}>
-                <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
-                    <Text style={styles.modalTitle}>Target for Blur</Text>
-                    {blurOptions.map(opt => (
-                        <TouchableOpacity key={opt.value} style={styles.menuItem} onPress={async () => {
-                            setBlurTarget(opt.value);
-                            blurTargetRef.current = opt.value;
-                            await AsyncStorage.setItem('ai_blur_target', opt.value);
-                            setShowAiBlurMenu(false);
-                        }}>
-                            <Text style={[styles.menuText, blurTarget === opt.value && {color: '#FF0000', fontWeight: 'bold'}]}>
-                                Blur {opt.label}
-                            </Text>
-                        </TouchableOpacity>
-                    ))}
                 </TouchableOpacity>
             </TouchableOpacity>
         </Modal>
@@ -1108,9 +957,7 @@ export default function GlobalPlayer() {
                     <Text style={styles.modalTitle}>Select Speed</Text>
                     {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map(s => (
                         <TouchableOpacity key={s} style={styles.menuItem} onPress={() => changeSpeed(s)}>
-                            <Text style={[styles.menuText, currentSpeed === s && {color: '#FF0000', fontWeight: 'bold'}]}>
-                                {s === 1.0 ? 'Normal (1.0x)' : `${s}x`}
-                            </Text>
+                            <Text style={[styles.menuText, currentSpeed === s && {color: '#FF0000', fontWeight: 'bold'}]}>{s === 1.0 ? 'Normal (1.0x)' : `${s}x`}</Text>
                         </TouchableOpacity>
                     ))}
                 </TouchableOpacity>
@@ -1129,34 +976,25 @@ export default function GlobalPlayer() {
         
         {!isInteractiveFull && (
             <TouchableOpacity activeOpacity={0.9} style={styles.miniTouchableArea} onPress={() => {
-                if (videoData) {
-                    navigation.navigate('Player', { videoId: currentVideoIdRef.current, videoData });
-                    setPlayerState('full');
-                }
+                if (videoData) { navigation.navigate('Player', { videoId: currentVideoIdRef.current, videoData }); setPlayerState('full'); }
             }}>
                 <View style={styles.miniControlsRow}>
                     <TouchableOpacity style={styles.miniCtrlBtn} onPress={async () => {
                         if (isAudioMode) {
                             if (syncAudioRef.current) {
-                                if (syncAudioRef.current.playing) syncAudioRef.current.pause();
-                                else syncAudioRef.current.play();
+                                if (syncAudioRef.current.playing) syncAudioRef.current.pause(); else syncAudioRef.current.play();
                             }
                         } else if (player) {
                             if (player.playing) {
-                                player.pause();
-                                if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.pause();
+                                player.pause(); if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.pause();
                             } else {
-                                player.play();
-                                if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.play();
+                                player.play(); if (streamMode === 'separate' && syncAudioRef.current) syncAudioRef.current.play();
                             }
                         }
                     }}>
                         <Ionicons name={isPlayingUI ? "pause" : "play"} size={22} color="#FFF" />
                     </TouchableOpacity>
-
-                    <TouchableOpacity onPress={closePlayer} style={styles.miniCtrlBtn}>
-                        <Ionicons name="close" size={24} color="#FFF" />
-                    </TouchableOpacity>
+                    <TouchableOpacity onPress={closePlayer} style={styles.miniCtrlBtn}><Ionicons name="close" size={24} color="#FFF" /></TouchableOpacity>
                 </View>
             </TouchableOpacity>
         )}
@@ -1170,50 +1008,38 @@ const styles = StyleSheet.create({
   fullContainer: { position: 'absolute', top: 55, left: 0, width: PORTRAIT_WIDTH, height: PLAYER_HEIGHT, zIndex: 9999, backgroundColor: '#000', overflow: 'hidden' },
   centerContainer: { position: 'absolute', top: 0, left: 0, width: PORTRAIT_WIDTH, height: PORTRAIT_HEIGHT, zIndex: 9999, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   miniContainer: { position: 'absolute', bottom: 100, right: 20, width: MINI_WIDTH, height: MINI_HEIGHT, backgroundColor: '#000', borderRadius: 15, overflow: 'hidden', elevation: 10, borderWidth: 1, borderColor: '#00FF00' },
-  
   videoWrapper: { flex: 1, justifyContent: 'center', width: '100%', height: '100%' },
   animatedVideoWrapper: { flex: 1, width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }, 
   video: { flex: 1, width: '100%', height: '100%' },
-  
   tapOverlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', zIndex: 5 }, 
   tapHalf: { flex: 1 },
   controls: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
-  
   centerRow: { flexDirection: 'row', alignItems: 'center', zIndex: 20 },
   bottomBarWrapper: { position: 'absolute', bottom: 5, width: '100%', zIndex: 20, flexDirection: 'column' },
   bottomBar: { width: '100%', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15 },
-  
   storyboardContainer: { marginBottom: 5, height: 75, width: '100%' },
   frameItem: { width: 100, height: 60, marginRight: 8, borderRadius: 8, overflow: 'hidden', backgroundColor: '#333', borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', position: 'relative' },
   frameImg: { width: '100%', height: '100%', resizeMode: 'cover' },
   frameTimeBox: { position: 'absolute', bottom: 2, right: 4, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 },
   frameTimeText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
-  
   badge: { position: 'absolute', top: 2, left: 4, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, elevation: 5 },
-  badgeW: { backgroundColor: '#FF1493' }, 
-  badgeM: { backgroundColor: '#1E90FF' }, 
-  badgeBoth: { backgroundColor: '#8A2BE2' }, 
+  badgeW: { backgroundColor: '#FF1493' }, badgeM: { backgroundColor: '#1E90FF' }, badgeBoth: { backgroundColor: '#8A2BE2' }, 
   badgeText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
-
   timeTextLeft: { color: '#FFF', fontSize: 13, fontWeight: 'bold', minWidth: 40, textAlign: 'center' },
   timeTextRight: { color: '#FFF', fontSize: 13, fontWeight: 'bold', minWidth: 40, textAlign: 'center' },
-  
   sliderWrapper: { flex: 1, marginHorizontal: 8, justifyContent: 'center', position: 'relative', height: 40 },
   customTrackContainer: { position: 'absolute', left: Platform.OS === 'android' ? 15 : 0, right: Platform.OS === 'android' ? 15 : 0, height: 3, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, overflow: 'hidden' },
   bufferedBar: { height: '100%', backgroundColor: 'rgba(144, 238, 144, 0.8)', borderRadius: 2 },
-
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
   settingsMenu: { width: 250, backgroundColor: '#1A1A1A', borderRadius: 15, padding: 15, elevation: 10 },
   modalTitle: { color: '#FFF', fontSize: 18, fontWeight: 'bold', marginBottom: 10, textAlign: 'center', borderBottomWidth: 1, borderBottomColor: '#333', paddingBottom: 10 },
   menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#333' },
   menuIcon: { marginRight: 10 },
   menuText: { color: '#FFF', fontSize: 16 },
-
   fallbackOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 20, zIndex: 30 },
   fallbackText: { color: '#FFF', textAlign: 'center', marginVertical: 20, fontSize: 16 },
   btn: { backgroundColor: '#FF0000', paddingHorizontal: 25, paddingVertical: 12, borderRadius: 10 },
   btnText: { color: '#FFF', fontWeight: 'bold' },
-  
   miniTouchableArea: { flex: 1, width: '100%', height: '100%', position: 'absolute', zIndex: 50 },
   miniControlsRow: { position: 'absolute', top: 5, right: 5, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 15, paddingHorizontal: 5, paddingVertical: 2, alignItems: 'center' },
   miniCtrlBtn: { padding: 5, marginHorizontal: 3 },
