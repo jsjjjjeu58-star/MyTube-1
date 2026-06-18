@@ -15,7 +15,9 @@ const PLAYER_HEIGHT = (width * 9) / 16;
 const MY_API_SERVER = "http://127.0.0.1:10000"; 
 
 export default function PlayerScreen({ route, navigation }) {
-  const { videoId, videoData = {} } = route?.params || {};
+  // 🚨 ১. পরিবর্তন: aiScanEnabled রিসিভ করা হলো
+  const { videoId, videoData = {}, aiScanEnabled } = route?.params || {};
+  
   const { isDarkMode } = useTheme();
   const { t } = useLanguage(); 
   const styles = getDynamicStyles(isDarkMode);
@@ -52,7 +54,9 @@ export default function PlayerScreen({ route, navigation }) {
   useEffect(() => {
     checkSubscriptionStatus(); fetchRelatedVideos(false);
     if (videoId && videoData) {
-        DeviceEventEmitter.emit('playVideo', { videoId: videoId, videoData: videoData });
+        // 🚨 ২. পরিবর্তন: GlobalPlayer-এ aiScanEnabled পাঠানো হলো
+        DeviceEventEmitter.emit('playVideo', { videoId: videoId, videoData: videoData, aiScanEnabled: aiScanEnabled });
+        
         setIsAudioMode(videoData?.type === 'audio'); setIsInitialLoading(true);
         setLiveAvatar(null); setDescription(''); setComments([]); setCommentReplies({}); setCommentNextToken(null);
 
@@ -103,7 +107,8 @@ export default function PlayerScreen({ route, navigation }) {
               const response = await fetch(`${MY_API_SERVER}/api/resolve-url?url=${encodeURIComponent(cleanUrl)}`);
               const data = await response.json();
               setIsLinkLoading(false);
-              if (data.success && data.videoData) navigation.push('Player', { videoId: data.videoData.id, videoData: data.videoData });
+              // 🚨 লিংকে ক্লিক করার সময় স্ক্যানিং অন/অফ পাঠানো হচ্ছে
+              if (data.success && data.videoData) navigation.push('Player', { videoId: data.videoData.id, videoData: data.videoData, aiScanEnabled: aiScanEnabled });
               else navigation.navigate('searchsettings', { initialSearch: videoIdMatch[1] });
           } catch (e) {
               setIsLinkLoading(false); navigation.navigate('searchsettings', { initialSearch: videoIdMatch[1] });
@@ -184,10 +189,15 @@ export default function PlayerScreen({ route, navigation }) {
       setShowCommentModal(false); navigation.navigate('Channel', { channelName, channelAvatar, channelId });
   };
 
+<<<<<<< HEAD
   // 🎯 🚀 [FIX]: থাম্বনেইল এবং ভিডিও আইডি সরাসরি পাঠানো হচ্ছে
 
   const openDownloadWindow = () => { DeviceEventEmitter.emit('triggerDownloadOverlay', { videoId: videoId, title: videoData?.title, thumbnail: videoData?.thumbnail }); };
 
+=======
+  const openDownloadWindow = () => { DeviceEventEmitter.emit('triggerDownloadOverlay', { videoId: videoId, title: videoData?.title, thumbnail: videoData?.thumbnail }); };
+
+>>>>>>> b10729fc5330650efa3c192215a70c989abfe763
 
   const fetchRelatedVideos = async (isLoadMore = false) => {
     if (isLoadMore) setIsLoadingMore(true);
@@ -324,7 +334,8 @@ export default function PlayerScreen({ route, navigation }) {
           <FlatList 
             ListHeaderComponent={renderHeader} data={relatedVideos} keyExtractor={(item, index) => item.id + index.toString()} 
             renderItem={({item}) => (
-              <TouchableOpacity style={styles.recCard} onPress={() => navigation.push('Player', { videoId: item.id, videoData: item })}>
+              // 🚨 ৩. পরিবর্তন: রিলেটেড ভিডিওতে ক্লিক করার সময় aiScanEnabled পাঠানো হলো
+              <TouchableOpacity style={styles.recCard} onPress={() => navigation.push('Player', { videoId: item.id, videoData: item, aiScanEnabled: aiScanEnabled })}>
                 <View style={styles.thumbWrapper}>
                    <Image source={{ uri: item.thumbnail }} style={styles.recThumb} />
                    {item.duration ? (<View style={styles.durationBadge}><Text style={styles.durationText}>{item.duration}</Text></View>) : null}
