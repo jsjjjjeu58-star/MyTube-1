@@ -111,7 +111,8 @@
       "expo-web-browser",
       "expo-font",
       "expo-asset",
-      "react-native-fast-tflite"
+      "react-native-fast-tflite",
+      "expo-status-bar"
     ],
     "extra": {
       "expo-navigation-bar": {},
