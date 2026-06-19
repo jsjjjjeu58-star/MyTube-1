@@ -174,17 +174,17 @@ export default function GlobalPlayer() {
       return () => { targetSub.remove(); scanSub.remove(); };
   }, []);
 
-  // 🚨 [UPDATED]: Maximum Background Support for Expo Audio
+  // 🚨 [FIX] - doNotMix সেটিং লক স্ক্রিন মিডিয়া ইন্টিগ্রেশনের জন্য বাধ্যতামূলক
   useEffect(() => {
     const setupAudio = async () => {
       try {
         await setAudioModeAsync({
-          staysActiveInBackground: true, // ব্যাকগ্রাউন্ডে চলতে সাহায্য করবে
+          staysActiveInBackground: true,
           playsInSilentModeIOS: true,
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
-          interruptionModeIOS: 1, 
-          interruptionModeAndroid: 1, 
+          interruptionModeIOS: 'doNotMix', // 👈 [IMPORTANT FOR LOCKSCREEN]
+          interruptionModeAndroid: 'doNotMix', // 👈 [IMPORTANT FOR LOCKSCREEN]
         });
       } catch (e) {
           console.log("Audio Setup Error:", e);
@@ -195,7 +195,10 @@ export default function GlobalPlayer() {
 
   const safeReleaseAudio = () => {
       if (syncAudioRef.current) {
-          try { syncAudioRef.current.release(); } catch(e) {}
+          try { 
+              syncAudioRef.current.clearLockScreenControls(); // 👈 লক স্ক্রিন থেকে রিমুভ
+              syncAudioRef.current.release(); 
+          } catch(e) {}
           syncAudioRef.current = null;
       }
   };
@@ -213,17 +216,14 @@ export default function GlobalPlayer() {
     controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 4000);
   };
 
-  // 🚨 [UPDATED]: Background AppState Management
   useEffect(() => {
     const appStateSub = AppState.addEventListener('change', async (nextAppState) => {
         if (nextAppState.match(/inactive|background/)) {
             if (!isAudioModeRef.current) {
-                // ভিডিও মোডে থাকলে অ্যাপ মিনিমাইজ করলে পজ হবে
                 if (player && player.playing) player.pause();
                 if (syncAudioRef.current && syncAudioRef.current.playing) syncAudioRef.current.pause();
             } else {
-                // অডিও মোডে থাকলে চলতে থাকবে 
-                console.log("Background Audio Playing...");
+                console.log("Background Audio Mode Active.");
             }
         }
     });
@@ -316,6 +316,24 @@ export default function GlobalPlayer() {
       } catch (error) { }
   };
 
+  // 🚨 [NEW] - লক স্ক্রিন উইজেট আপডেট ট্রিগার সিস্টেম
+  const updateLockScreenControls = (audioPlayer, title, channel, artworkUrl) => {
+      if (!audioPlayer || !audioPlayer.setActiveForLockScreen) return;
+      try {
+          audioPlayer.setActiveForLockScreen(true, {
+              title: title || 'MyTube Audio',
+              artist: channel || 'MyTube Stream',
+              artwork: artworkUrl || `https://i.ytimg.com/vi/${currentVideoIdRef.current}/hqdefault.jpg`
+          }, {
+              showPlayPauseControls: true, // 👈 নোটিফিকেশনে প্লে পজ থাকবে
+              showSkipForwardBackwardControls: false,
+              showNextPreviousControls: false
+          });
+      } catch (e) {
+          console.log("Lockscreen mapping error:", e);
+      }
+  };
+
   useEffect(() => {
     const playSub = DeviceEventEmitter.addListener('playVideo', async (data) => {
       const scanStatus = data.aiScanEnabled || false;
@@ -368,6 +386,7 @@ export default function GlobalPlayer() {
 
           if (streamModeRef.current === 'separate' && syncAudioRef.current) {
               if (!syncAudioRef.current.playing) syncAudioRef.current.play();
+              updateLockScreenControls(syncAudioRef.current, videoData?.title, videoData?.channel, videoData?.thumbnail);
           } else {
               let audioUrlToPlay = cachedAudioUrlRef.current;
               if (!audioUrlToPlay) {
@@ -386,6 +405,9 @@ export default function GlobalPlayer() {
                   pendingSeekRef.current = resumeTimeRef.current; 
                   safeSetRate(syncAudioRef.current, currentSpeed); 
                   syncAudioRef.current.play();
+                  
+                  // 🚨 নোটিফিকেশন বার রেজিস্টার করা হলো
+                  updateLockScreenControls(syncAudioRef.current, videoData?.title, videoData?.channel, videoData?.thumbnail);
               }
           }
       } else {
@@ -393,7 +415,10 @@ export default function GlobalPlayer() {
           if (syncAudioRef.current) {
               resumeVideoTime = syncAudioRef.current.currentTime;
               if (streamModeRef.current !== 'separate') safeReleaseAudio();
-              else syncAudioRef.current.pause();
+              else {
+                  syncAudioRef.current.pause();
+                  syncAudioRef.current.clearLockScreenControls(); // 👈 মোড পরিবর্তন হলে ওল্ড লকস্ক্রিন ক্লিয়ার
+              }
           }
           resumeTimeRef.current = resumeVideoTime;
           setVideoSource(streamUrl); 
@@ -401,7 +426,7 @@ export default function GlobalPlayer() {
     });
 
     return () => { playSub.remove(); audioModeSub.remove(); };
-  }, [isFullscreen, streamUrl]);
+  }, [isFullscreen, streamUrl, videoData]);
 
   useEffect(() => {
       let timeoutId;
@@ -650,6 +675,12 @@ export default function GlobalPlayer() {
         if (isSyncingRef.current) return; 
 
         if (isAudioMode) {
+            // 🚨 অডিও মোডে থাকাকালীন ইউজার লকস্ক্রিন থেকে প্লে/পজ করলে তা UI-তে সিঙ্ক করবে
+            if (syncAudioRef.current) {
+                setIsPlayingUI(syncAudioRef.current.playing || false);
+                setCurrentTime(syncAudioRef.current.currentTime);
+                if (syncAudioRef.current.duration > 0) setDuration(syncAudioRef.current.duration);
+            }
         } else {
             setIsPlayingUI(player?.playing || false);
             
@@ -970,7 +1001,7 @@ export default function GlobalPlayer() {
                             <TouchableOpacity key={t} style={styles.menuItem} onPress={async () => {
                                 setScanInterval(t); scanIntervalRef.current = t;
                                 await AsyncStorage.setItem('ai_interval', t.toString());
-                                setShowAiTimeMenu(false); targetScanSecRef.current = parseFloat(currentTime.toFixed(1));
+                                        setShowAiTimeMenu(false); targetScanSecRef.current = parseFloat(currentTime.toFixed(1));
                                 if (aiScanEnabledRef.current) startAiPipe(targetScanSecRef.current);
                             }}>
                                 <Text style={[styles.menuText, scanInterval === t && {color: '#FF0000', fontWeight: 'bold'}]}>{t} Seconds</Text>
