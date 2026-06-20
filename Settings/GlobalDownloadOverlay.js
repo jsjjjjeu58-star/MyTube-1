@@ -1,13 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Image, DeviceEventEmitter, Alert, NativeModules } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, DeviceEventEmitter, Alert, NativeModules } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 
-// 🚨 VideoProcessor ইমপোর্ট করা হলো
-import { processExtractedData } from '../VideoProcessor';
-
-const MY_API_SERVER = "http://127.0.0.1:10000";
+// 🚨 লজিক প্রসেস করার জন্য আমাদের তৈরি করা ফাইলটি ইমপোর্ট করা হলো
+import { processExtractedData } from '../VideoProcessor'; 
 
 export default function GlobalDownloadOverlay() {
   const { isDarkMode } = useTheme();
@@ -35,20 +33,18 @@ export default function GlobalDownloadOverlay() {
 
   const removeRequest = (id) => setDownloadRequests(prev => prev.filter(r => r.id !== id));
 
-  // 🚨 আপডেট করা fetchDownloadLinks ফাংশন
   const fetchDownloadLinks = async (id, videoId, type = 'video') => {
     try {
       const targetUrl = `https://www.youtube.com/watch?v=${videoId}`;
       
-      // 🚨 লোকাল সার্ভারের বদলে নেটিভ ইঞ্জিন কল করা হচ্ছে
+      // 🚨 লোকাল সার্ভারের বদলে সরাসরি নেটিভ ইঞ্জিন কল করা হচ্ছে
       const rawJsonString = await NativeModules.YtDlpModule.extractVideoInfo(targetUrl);
       
-      // 🚨 VideoProcessor দিয়ে কাঁচা ডেটাকে সুন্দর করা হচ্ছে
+      // 🚨 VideoProcessor দিয়ে কাঁচা ডেটাকে সুন্দর এবং সাজানো হচ্ছে
       const data = processExtractedData(rawJsonString, type === 'audio' ? 'audio' : 'download');
 
       setDownloadRequests(prev => prev.map(r => r.id === id ? { 
           ...r, 
-          // অডিও হলে availableAudio, ভিডিও হলে availableLinks
           downloadLinks: (type === 'audio' ? data.availableAudio : data.availableLinks) || [], 
           step: 'list' 
       } : r));
@@ -94,15 +90,21 @@ export default function GlobalDownloadOverlay() {
       if (!req) return;
       const { videoData, downloadType } = req;
       const downloadId = Date.now().toString();
-      const safeTitle = (videoData.title || 'video').replace(/[<>:"\/\\|?*]+/g, '').trim();
-      const targetUrl = `https://www.youtube.com/watch?v=${videoData.videoId}`;
-      const thumbUrl = videoData.thumbnail || `https://i.ytimg.com/vi/${videoData.videoId}/hqdefault.jpg`;
-      
-      // ⚠️ এখানে aria-download কল আছে, যা আমরা পরবর্তীতে expo-file-system দিয়ে রিপ্লেস করব
-      const dlApiUrl = `${MY_API_SERVER}/api/aria-download?id=${downloadId}&videoId=${videoData.videoId}&url=${encodeURIComponent(targetUrl)}&quality=${encodeURIComponent(item.quality)}&type=${downloadType}&title=${encodeURIComponent(safeTitle)}&thumbnail=${encodeURIComponent(thumbUrl)}`;
-      await fetch(dlApiUrl);
+
+      // 🚨 সার্ভারে API কলের বদলে আমরা সরাসরি Download Manager-কে ইভেন্ট/সিগন্যাল পাঠাচ্ছি
+      DeviceEventEmitter.emit('startNativeDownload', {
+          id: downloadId,
+          videoId: videoData.videoId,
+          title: videoData.title || 'Unknown Video',
+          thumbnail: videoData.thumbnail || `https://i.ytimg.com/vi/${videoData.videoId}/hqdefault.jpg`,
+          url: item.url, // 👈 yt-dlp থেকে বের করা ডাইরেক্ট ডাউনলোড লিংক
+          quality: item.quality,
+          type: downloadType,
+          ext: item.ext || (downloadType === 'video' ? 'mp4' : 'm4a')
+      });
+
     } catch (e) {
-      Alert.alert('Error', 'Could not connect to server.');
+      Alert.alert('Error', 'ডাউনলোড শুরু করতে সমস্যা হচ্ছে।');
     } finally {
       removeRequest(id);
     }
@@ -146,7 +148,7 @@ export default function GlobalDownloadOverlay() {
                       <View style={styles.qualityIconBg}><Ionicons name={req.downloadType === 'audio' ? 'headset' : 'videocam'} size={16} color="#00BFA5" /></View>
                       <View style={{ marginLeft: 8 }}>
                         <Text style={styles.qualityText}>{formatQualityText(item.quality)}</Text>
-                        <Text style={styles.qualitySubText}>{item.size || (req.downloadType === 'video' ? 'MP4' : 'MP3')}</Text>
+                        <Text style={styles.qualitySubText}>{item.filesize || item.size || (req.downloadType === 'video' ? 'MP4' : 'MP3')}</Text>
                       </View>
                     </View>
                     <View style={styles.downloadIconBtn}><Ionicons name="download-outline" size={16} color="#00BFA5" /></View>
