@@ -120,14 +120,17 @@ export default function GlobalDownloadManager() {
                         } else if (existsIndex !== -1) {
                             const item = {...updatedList[existsIndex]}; 
 
-                            if (activeItem.status === 'completed' && !item.isCompleted) {
+                            // normalize numeric progress early
+                            let progressVal = parseFloat(activeItem.progress) || 0;
+
+                            // Treat explicit completed status OR progress reaching 100 as completed
+                            if ((activeItem.status === 'completed' || progressVal >= 100) && !item.isCompleted) {
                                 item.progress = '100'; item.isCompleted = true; item.localUri = activeItem.localUrl; item.date = Date.now(); needsSave = true;
-                                fetch(`${MY_API_SERVER}/api/clear-progress?id=${id}`).catch(()=>{}); 
+                                fetch(`${MY_API_SERVER}/api/clear-progress?id=${id}`).catch(()=>{});
                             } else if (activeItem.status === 'error' && !item.isError) {
                                 item.isError = true; needsSave = true;
                             } else {
                                 // 🎯 🚀 [FIX] অডিও হলে ফেক প্রসেসিং স্কিপ করবে
-                                let progressVal = parseFloat(activeItem.progress) || 0;
                                 if (progressVal >= 99.9 && activeItem.status !== 'completed' && activeItem.type !== 'audio') {
                                     if (!item.processingStartTime) { item.processingStartTime = Date.now(); needsSave = true; }
                                     let elapsed = Date.now() - item.processingStartTime;
