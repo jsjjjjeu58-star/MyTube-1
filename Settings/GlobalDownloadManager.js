@@ -1,4 +1,4 @@
-import React, { useState, useEঈffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, StatusBar, Alert, Animated, PanResponder, Dimensions, Modal, DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -56,16 +56,6 @@ export default function GlobalDownloadManager() {
             const safeTitle = data.title.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
             const fileUri = `${FileSystem.documentDirectory}${safeTitle}_${data.id}.${fileExt}`;
 
-
-                const currentActiveIds = Object.keys(active).filter(k => {
-                    const ai = active[k];
-                    const progressVal = parseFloat(ai.progress) || 0;
-                    if (ai.status === 'error' || ai.status === 'completed') return false;
-                    if (progressVal >= 100) return false; // treat 100% as completed client-side
-                    return true;
-                });
-                setActiveCount(currentActiveIds.length);
-
             // UI-তে ইনস্ট্যান্ট দেখানো হচ্ছে
             setDownloads(prev => [{
                 id: data.id, videoId: data.videoId, title: data.title, thumbnail: data.thumbnail,
@@ -73,7 +63,6 @@ export default function GlobalDownloadManager() {
                 progress: '0.0', speed: 'Connecting...', eta: '--:--',
                 isCompleted: false, localUri: fileUri, isError: false
             }, ...prev]);
- a9e815df9a56633ed9005d87d7d85ad2bc48a645
 
             setIsBadgeVisible(true);
             Animated.spring(pan, { toValue: { x: 20, y: SCREEN_HEIGHT - 150 }, useNativeDriver: false }).start();
@@ -118,55 +107,6 @@ export default function GlobalDownloadManager() {
 
             activeDownloadsRef.current[data.id] = downloadResumable;
 
-
-                    Object.keys(active).forEach(id => {
-                        const activeItem = active[id];
-                        const existsIndex = updatedList.findIndex(d => d.id === id);
-
-                        if (existsIndex === -1 && activeItem.status !== 'error') {
-                            updatedList.unshift({
-                                id: id, videoId: activeItem.videoId || id, title: activeItem.title || 'Downloading...', 
-                                thumbnail: activeItem.thumbnail || `https://ui-avatars.com/api/?name=DL&background=00BFA5&color=fff&size=150`, 
-                                quality: activeItem.quality || 'N/A', type: activeItem.type || 'Media', 
-                                date: Date.now(), progress: activeItem.progress || '0', speed: activeItem.speed || '0 KB/s',
-                                eta: activeItem.eta || '--:--', isCompleted: activeItem.status === 'completed', localUri: activeItem.localUrl || null,
-                                processingStartTime: null, fakeProgress: null
-                            });
-                            needsSave = true;
-                        } else if (existsIndex !== -1) {
-                            const item = {...updatedList[existsIndex]}; 
-
-                            // normalize numeric progress early
-                            let progressVal = parseFloat(activeItem.progress) || 0;
-
-                            // Treat explicit completed status OR progress reaching 100 as completed
-                            if ((activeItem.status === 'completed' || progressVal >= 100) && !item.isCompleted) {
-                                item.progress = '100'; item.isCompleted = true; item.localUri = activeItem.localUrl; item.date = Date.now(); needsSave = true;
-                                fetch(`${MY_API_SERVER}/api/clear-progress?id=${id}`).catch(()=>{});
-                            } else if (activeItem.status === 'error' && !item.isError) {
-                                item.isError = true; needsSave = true;
-                            } else {
-                                // 🎯 🚀 [FIX] অডিও হলে ফেক প্রসেসিং স্কিপ করবে
-                                if (progressVal >= 99.9 && activeItem.status !== 'completed' && activeItem.type !== 'audio') {
-                                    if (!item.processingStartTime) { item.processingStartTime = Date.now(); needsSave = true; }
-                                    let elapsed = Date.now() - item.processingStartTime;
-                                    item.fakeProgress = Math.min((elapsed / 15000) * 100, 99.9).toFixed(1);
-                                    needsSave = true; 
-                                } else {
-                                    item.processingStartTime = null; item.fakeProgress = null;
-                                }
-
-                                if (item.progress !== activeItem.progress || item.speed !== activeItem.speed) {
-                                    item.progress = activeItem.progress; item.speed = activeItem.speed; item.eta = activeItem.eta; needsSave = true;
-                                }
-                            }
-                            updatedList[existsIndex] = item;
-                        }
-                    });
-
-                    if (needsSave) AsyncStorage.setItem('recorded_downloads', JSON.stringify(updatedList)).catch(()=>{});
-                    return updatedList;
-
             try {
                 const { uri } = await downloadResumable.downloadAsync();
                 // 🚨 ডাউনলোড সফল!
@@ -176,7 +116,6 @@ export default function GlobalDownloadManager() {
                     );
                     AsyncStorage.setItem('recorded_downloads', JSON.stringify(newList));
                     return newList;
- a9e815df9a56633ed9005d87d7d85ad2bc48a645
                 });
                 delete activeDownloadsRef.current[data.id];
             } catch (e) {
