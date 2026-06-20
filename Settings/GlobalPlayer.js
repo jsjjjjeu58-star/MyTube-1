@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Image, Platform, ScrollView } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Image, Platform, ScrollView, NativeModules } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video'; 
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio'; 
 import { Ionicons } from '@expo/vector-icons';
@@ -11,16 +11,15 @@ import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as FileSystem from 'expo-file-system/legacy'; 
+import * as FileSystem from 'expo-file-system'; 
 import { decode } from 'base64-arraybuffer'; 
 import * as jpeg from 'jpeg-js';
 import { Asset } from 'expo-asset'; 
 import FaceDetection from '@react-native-ml-kit/face-detection';
 import { loadTensorflowModel } from 'react-native-fast-tflite';
 
-// 🚨 [NEW] নেটিভ ইঞ্জিন এবং ভিডিও প্রসেসর ইমপোর্ট
-import { NativeModules } from 'react-native';
-import { processExtractedData } from '../VideoProcessor'; // পাথটি ফোল্ডার অনুযায়ী ঠিক আছে কিনা দেখে নেবেন
+// 🚨 আমাদের লজিক প্রসেসর
+import { processExtractedData } from '../VideoProcessor';
 
 LogBox.ignoreLogs(['Video component', 'expo-audio', 'expo-video']);
 
@@ -31,8 +30,6 @@ const PORTRAIT_HEIGHT = Math.max(windowDim.width, windowDim.height);
 const PLAYER_HEIGHT = (PORTRAIT_WIDTH * 9) / 16;
 const MINI_WIDTH = PORTRAIT_WIDTH * 0.45;
 const MINI_HEIGHT = (MINI_WIDTH * 9) / 16;
-
-const MY_API_SERVER = "http://127.0.0.1:10000"; 
 
 const safeSeek = (p, targetSec) => {
     if (!p) return;
@@ -170,8 +167,6 @@ export default function GlobalPlayer() {
           if (!isEnabled) {
               setIsBlurredUI(false);
               isBlurredRef.current = false;
-          } else {
-              startAiPipe(parseFloat(targetScanSecRef.current.toFixed(1)));
           }
       });
 
@@ -225,8 +220,6 @@ export default function GlobalPlayer() {
             if (!isAudioModeRef.current) {
                 if (player && player.playing) player.pause();
                 if (syncAudioRef.current && syncAudioRef.current.playing) syncAudioRef.current.pause();
-            } else {
-                console.log("Background Audio Mode Active.");
             }
         }
     });
@@ -296,18 +289,9 @@ export default function GlobalPlayer() {
     } catch (error) {}
   };
 
-  const startAiPipe = async (time) => {
-      if (!lowStreamUrlRef.current || !aiScanEnabledRef.current) return;
-      try {
-          await fetch(`${MY_API_SERVER}/api/start-ai-pipe?url=${encodeURIComponent(lowStreamUrlRef.current)}&time=${time}&interval=${scanIntervalRef.current}`);
-      } catch (e) {}
-  };
-
   const seekTo = async (newTime) => {
       setCurrentTime(newTime); 
       targetScanSecRef.current = parseFloat(newTime.toFixed(1));
-
-      if (aiScanEnabledRef.current) startAiPipe(targetScanSecRef.current);
 
       try {
           if (isAudioModeRef.current) {
@@ -327,7 +311,7 @@ export default function GlobalPlayer() {
               artist: channel || 'MyTube Stream',
               artwork: artworkUrl || `https://i.ytimg.com/vi/${currentVideoIdRef.current}/hqdefault.jpg`
           }, {
-              showPlayPauseControls: true,
+              showPlayPauseControls: true, 
               showSkipForwardBackwardControls: false,
               showNextPreviousControls: false
           });
@@ -392,15 +376,15 @@ export default function GlobalPlayer() {
           } else {
               let audioUrlToPlay = cachedAudioUrlRef.current;
               if (!audioUrlToPlay) {
-                  // 🚨 [UPDATED] Native Module কল করে অডিও বের করা
                   try {
+                      // 🚨 নেটিভ ইঞ্জিন থেকে অডিও বের করা হচ্ছে
                       const rawJsonString = await NativeModules.YtDlpModule.extractVideoInfo(`https://www.youtube.com/watch?v=${currentVideoIdRef.current}`);
                       const json = processExtractedData(rawJsonString, 'play', 720);
                       if (json && (json.audioUrl || json.url)) {
                           audioUrlToPlay = json.audioUrl || json.url;
                           cachedAudioUrlRef.current = audioUrlToPlay; 
                       }
-                  } catch (e) { console.error("Audio Mode Error:", e); }
+                  } catch (e) { console.log(e); }
               }
               if (audioUrlToPlay) {
                   safeReleaseAudio();
@@ -446,7 +430,7 @@ export default function GlobalPlayer() {
       return () => clearTimeout(timeoutId);
   }, [videoSource, isAudioMode]);
 
-  // 🚨 [UPDATED] নেটিভ ইঞ্জিন কল করার জন্য fetchStreamUrl
+  // 🚨 নেটিভ ইঞ্জিন থেকে ভিডিও লিংক আনা হচ্ছে
   const fetchStreamUrl = async (vidId, targetQuality, fetchId) => {
     try {
       const qStr = targetQuality.toString().toUpperCase();
@@ -457,21 +441,15 @@ export default function GlobalPlayer() {
       else reqQ = parseInt(qStr.replace(/\D/g, '')) || 720;
 
       const targetUrl = `https://www.youtube.com/watch?v=${vidId}`;
-
-      // 🚨 নেটিভ ইঞ্জিন থেকে ডেটা আনা
       const rawJsonString = await NativeModules.YtDlpModule.extractVideoInfo(targetUrl);
-      
-      // 🚨 VideoProcessor দিয়ে প্লেয়ারের উপযোগী করা
       const json = processExtractedData(rawJsonString, 'play', reqQ);
 
       if (fetchId !== fetchIdRef.current) return;
 
       if (json && json.url) {
-          // AI Frame এর জন্য যদি lowQualityUrl দরকার হয়, সেটা এখানে সেভ হবে (ভবিষ্যতের জন্য)
           if (json.lowQualityUrl) {
-              setLowStreamUrl(json.lowQualityUrl);
+              setLowStreamUrl(json.lowQualityUrl); 
               lowStreamUrlRef.current = json.lowQualityUrl;
-              if (aiScanEnabledRef.current) startAiPipe(0);
           }
           startPlayback(json);
       }
@@ -600,28 +578,11 @@ export default function GlobalPlayer() {
 
               isAiProcessingRef.current = true;
               try {
-                  const response = await fetch(`${MY_API_SERVER}/api/get-pipe-frame?time=${targetSec}`);
-                  const data = await response.json();
-
-                  if (data.success && data.frameUrl) {
-                      const tempLocalPath = `${FileSystem.cacheDirectory}temp_frame_${targetSec}.jpg`;
-                      await FileSystem.downloadAsync(data.frameUrl, tempLocalPath);
-
-                      const result = await processFrameForGender(tempLocalPath);
-                      aiDataMapRef.current[targetSec] = { gender: result, size: 0 };
-
-                      setFrameList(prev => {
-                          const updated = [...prev, { time: targetSec, url: data.frameUrl, gender: result }];
-                          return updated.sort((a, b) => a.time - b.time);
-                      });
-
-                      await FileSystem.deleteAsync(tempLocalPath, { idempotent: true });
-                      targetScanSecRef.current = parseFloat((targetSec + scanIntervalRef.current).toFixed(1));
-                  } else if (data.status === 'processing') {
-                      await new Promise(r => setTimeout(r, 200));
-                  } else {
-                      await new Promise(r => setTimeout(r, 500));
-                  }
+                  // 🚨 AI Frame Scanning requires a native FFmpeg bridge which is not yet added to YtDlpModule.kt
+                  // To prevent crash, this local node fetch is bypassed. 
+                  // console.log("AI scanning requires native FFmpeg frame extractor.");
+                  await new Promise(r => setTimeout(r, 2000));
+                  targetScanSecRef.current = parseFloat((targetSec + scanIntervalRef.current).toFixed(1));
               } catch(e) {
               } finally {
                   isAiProcessingRef.current = false;
@@ -983,8 +944,7 @@ export default function GlobalPlayer() {
                     <TouchableOpacity style={styles.menuItem} onPress={() => {
                         const newVal = !aiScanEnabled;
                         setAiScanEnabled(newVal); aiScanEnabledRef.current = newVal;
-                        if (newVal) startAiPipe(parseFloat(currentTime.toFixed(1)));
-                        else { setIsBlurredUI(false); isBlurredRef.current = false; }
+                        if (!newVal) { setIsBlurredUI(false); isBlurredRef.current = false; }
                         setShowAiMenu(false);
                     }}>
                         <Ionicons name={aiScanEnabled ? "scan" : "scan-outline"} size={20} color={aiScanEnabled ? "#00FF00" : "#FFF"} style={styles.menuIcon} />
@@ -1005,8 +965,7 @@ export default function GlobalPlayer() {
                             <TouchableOpacity key={t} style={styles.menuItem} onPress={async () => {
                                 setScanInterval(t); scanIntervalRef.current = t;
                                 await AsyncStorage.setItem('ai_interval', t.toString());
-                                        setShowAiTimeMenu(false); targetScanSecRef.current = parseFloat(currentTime.toFixed(1));
-                                if (aiScanEnabledRef.current) startAiPipe(targetScanSecRef.current);
+                                setShowAiTimeMenu(false); targetScanSecRef.current = parseFloat(currentTime.toFixed(1));
                             }}>
                                 <Text style={[styles.menuText, scanInterval === t && {color: '#FF0000', fontWeight: 'bold'}]}>{t} Seconds</Text>
                             </TouchableOpacity>
