@@ -1,38 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEঈffect, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView, StatusBar, Alert, Animated, PanResponder, Dimensions, Modal, DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import * as FileSystem from 'expo-file-system'; // 🚨 নেটিভ ডাউনলোডার ইমপোর্ট
 
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BADGE_SIZE = 60;
-const MY_API_SERVER = "http://127.0.0.1:10000";
-
-const ShimmerOverlay = () => {
-    const translateX = useRef(new Animated.Value(-SCREEN_WIDTH)).current;
-
-    useEffect(() => {
-        Animated.loop(
-            Animated.timing(translateX, {
-                toValue: SCREEN_WIDTH,
-                duration: 1200,
-                useNativeDriver: true,
-            })
-        ).start();
-    }, []);
-
-    return (
-        <Animated.View
-            style={[
-                StyleSheet.absoluteFill,
-                { backgroundColor: 'rgba(255, 255, 255, 0.15)', width: '40%', transform: [{ translateX }], zIndex: 10 }
-            ]}
-        />
-    );
-};
 
 const timeAgoBn = (timestamp) => {
   if (!timestamp) return "";
@@ -51,10 +28,14 @@ export default function GlobalDownloadManager() {
 
     const [downloads, setDownloads] = useState([]);
     const [isScreenVisible, setIsScreenVisible] = useState(false); 
-    const [activeCount, setActiveCount] = useState(0);
     const [isBadgeVisible, setIsBadgeVisible] = useState(false);
-    const activeIdsRef = useRef(new Set()); 
+    
     const pan = useRef(new Animated.ValueXY({ x: 20, y: SCREEN_HEIGHT - 150 })).current;
+    
+    // 🚨 ব্যাকগ্রাউন্ড ডাউনলোড কন্ট্রোল করার জন্য Ref
+    const activeDownloadsRef = useRef({}); 
+    const lastProgressTimeRef = useRef({}); 
+    const lastDownloadedBytesRef = useRef({});
 
     const loadDownloads = async () => {
         try {
@@ -68,16 +49,14 @@ export default function GlobalDownloadManager() {
         const openEvent = DeviceEventEmitter.addListener('openDownloadScreen', () => {
             setIsScreenVisible(true); loadDownloads();
         });
-        return () => openEvent.remove();
-    }, []);
 
-    useEffect(() => {
-        const interval = setInterval(async () => {
-            try {
-                const res = await fetch(`${MY_API_SERVER}/api/progress`);
-                const data = await res.json();
-                const active = data.activeDownloads || {};
+        // 🚨 নেটিভ ডাউনলোড সিগন্যাল রিসিভ করা হচ্ছে
+        const startDownloadEvent = DeviceEventEmitter.addListener('startNativeDownload', async (data) => {
+            const fileExt = data.ext || 'mp4';
+            const safeTitle = data.title.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+            const fileUri = `${FileSystem.documentDirectory}${safeTitle}_${data.id}.${fileExt}`;
 
+<<<<<<< HEAD
                 const currentActiveIds = Object.keys(active).filter(k => {
                     const ai = active[k];
                     const progressVal = parseFloat(ai.progress) || 0;
@@ -86,29 +65,60 @@ export default function GlobalDownloadManager() {
                     return true;
                 });
                 setActiveCount(currentActiveIds.length);
+=======
+            // UI-তে ইনস্ট্যান্ট দেখানো হচ্ছে
+            setDownloads(prev => [{
+                id: data.id, videoId: data.videoId, title: data.title, thumbnail: data.thumbnail,
+                quality: data.quality, type: data.type, date: Date.now(),
+                progress: '0.0', speed: 'Connecting...', eta: '--:--',
+                isCompleted: false, localUri: fileUri, isError: false
+            }, ...prev]);
+>>>>>>> a9e815df9a56633ed9005d87d7d85ad2bc48a645
 
-                let hasNewId = false;
-                const currentActiveSet = new Set(currentActiveIds);
+            setIsBadgeVisible(true);
+            Animated.spring(pan, { toValue: { x: 20, y: SCREEN_HEIGHT - 150 }, useNativeDriver: false }).start();
 
-                currentActiveIds.forEach(id => {
-                    if (!activeIdsRef.current.has(id)) { hasNewId = true; activeIdsRef.current.add(id); }
-                });
-                activeIdsRef.current.forEach(id => {
-                    if (!currentActiveSet.has(id)) activeIdsRef.current.delete(id);
-                });
+            lastProgressTimeRef.current[data.id] = Date.now();
+            lastDownloadedBytesRef.current[data.id] = 0;
 
-                if (!isScreenVisible) {
-                    if (currentActiveIds.length === 0) setIsBadgeVisible(false);
-                    else if (hasNewId) {
-                        setIsBadgeVisible(true);
-                        Animated.spring(pan, { toValue: { x: 20, y: SCREEN_HEIGHT - 150 }, useNativeDriver: false }).start();
+            // 🚨 আসল ম্যাজিক: এক্সপো ফাইল সিস্টেম দিয়ে ডাউনলোড
+            const downloadResumable = FileSystem.createDownloadResumable(
+                data.url,
+                fileUri,
+                {},
+                (downloadProgress) => {
+                    const progress = (downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite) * 100;
+                    const now = Date.now();
+                    const timeDiff = (now - lastProgressTimeRef.current[data.id]) / 1000; 
+
+                    // প্রতি ১ সেকেন্ডে স্পিড এবং ETA আপডেট
+                    if (timeDiff >= 1) { 
+                        const bytesDiff = downloadProgress.totalBytesWritten - lastDownloadedBytesRef.current[data.id];
+                        const speedKBs = (bytesDiff / 1024 / timeDiff).toFixed(2);
+                        const speedMBs = (speedKBs / 1024).toFixed(2);
+                        const displaySpeed = speedMBs > 1 ? `${speedMBs} MB/s` : `${speedKBs} KB/s`;
+
+                        const bytesRemaining = downloadProgress.totalBytesExpectedToWrite - downloadProgress.totalBytesWritten;
+                        const etaSeconds = bytesDiff > 0 ? Math.round(bytesRemaining / bytesDiff * timeDiff) : 0;
+                        const etaFormatted = `${Math.floor(etaSeconds / 60)}m ${etaSeconds % 60}s`;
+
+                        lastProgressTimeRef.current[data.id] = now;
+                        lastDownloadedBytesRef.current[data.id] = downloadProgress.totalBytesWritten;
+
+                        setDownloads(prev => prev.map(item =>
+                            item.id === data.id ? { ...item, progress: progress.toFixed(1), speed: displaySpeed, eta: etaFormatted } : item
+                        ));
+                    } else {
+                        setDownloads(prev => prev.map(item =>
+                            item.id === data.id ? { ...item, progress: progress.toFixed(1) } : item
+                        ));
                     }
                 }
+            );
 
-                setDownloads(prevDownloads => {
-                    let needsSave = false;
-                    let updatedList = [...prevDownloads];
+            activeDownloadsRef.current[data.id] = downloadResumable;
 
+<<<<<<< HEAD
                     Object.keys(active).forEach(id => {
                         const activeItem = active[id];
                         const existsIndex = updatedList.findIndex(d => d.id === id);
@@ -156,12 +166,30 @@ export default function GlobalDownloadManager() {
 
                     if (needsSave) AsyncStorage.setItem('recorded_downloads', JSON.stringify(updatedList)).catch(()=>{});
                     return updatedList;
+=======
+            try {
+                const { uri } = await downloadResumable.downloadAsync();
+                // 🚨 ডাউনলোড সফল!
+                setDownloads(prev => {
+                    const newList = prev.map(item =>
+                        item.id === data.id ? { ...item, progress: '100', isCompleted: true, localUri: uri, speed: 'Completed', eta: '' } : item
+                    );
+                    AsyncStorage.setItem('recorded_downloads', JSON.stringify(newList));
+                    return newList;
+>>>>>>> a9e815df9a56633ed9005d87d7d85ad2bc48a645
                 });
-            } catch(e) {}
-        }, 1000);
+                delete activeDownloadsRef.current[data.id];
+            } catch (e) {
+                // এরর বা ক্যানসেল
+                setDownloads(prev => prev.map(item =>
+                    item.id === data.id ? { ...item, isError: true, speed: 'Failed/Cancelled', eta: '' } : item
+                ));
+                delete activeDownloadsRef.current[data.id];
+            }
+        });
 
-        return () => clearInterval(interval);
-    }, [isScreenVisible]);
+        return () => { openEvent.remove(); startDownloadEvent.remove(); };
+    }, []);
 
     const panResponder = useRef(
         PanResponder.create({
@@ -186,8 +214,26 @@ export default function GlobalDownloadManager() {
         Alert.alert("Cancel Download", "আপনি কি এই চলমান ডাউনলোডটি বাতিল করতে চান?", [
             { text: "না", style: "cancel" },
             { text: "হ্যাঁ", onPress: async () => {
-                await fetch(`${MY_API_SERVER}/api/cancel-download?id=${id}`).catch(()=>{});
+                if (activeDownloadsRef.current[id]) {
+                    await activeDownloadsRef.current[id].cancelAsync();
+                    delete activeDownloadsRef.current[id];
+                }
                 const newList = downloads.filter(item => item.id !== id);
+                setDownloads(newList);
+                await AsyncStorage.setItem('recorded_downloads', JSON.stringify(newList));
+            }}
+        ]);
+    };
+
+    const deleteDownload = async (id) => {
+        Alert.alert("Delete File", "এই ফাইলটি কি ডিভাইস থেকে মুছে ফেলতে চান?", [
+            { text: "না", style: "cancel" },
+            { text: "হ্যাঁ", onPress: async () => {
+                const item = downloads.find(d => d.id === id);
+                if (item && item.localUri) {
+                    try { await FileSystem.deleteAsync(item.localUri, { idempotent: true }); } catch (e) {}
+                }
+                const newList = downloads.filter(d => d.id !== id);
                 setDownloads(newList);
                 await AsyncStorage.setItem('recorded_downloads', JSON.stringify(newList));
             }}
@@ -205,6 +251,11 @@ export default function GlobalDownloadManager() {
 
     const activeDownloads = downloads.filter(d => !d.isCompleted && !d.isError);
     const completedDownloads = downloads.filter(d => d.isCompleted);
+    const activeCount = activeDownloads.length;
+
+    useEffect(() => {
+        if (!isScreenVisible && activeCount === 0) setIsBadgeVisible(false);
+    }, [activeCount, isScreenVisible]);
 
     return (
         <>
@@ -237,26 +288,8 @@ export default function GlobalDownloadManager() {
                                     <Text style={styles.sectionTitle}>চলমান ডাউনলোড ({activeDownloads.length})</Text>
 
                                     {activeDownloads.map(item => {
-                                        let progressVal = parseFloat(item.progress) || 0;
-                                        let isProcessing = progressVal >= 99.9 && !item.isCompleted && item.type !== 'audio'; 
-                                        let isPreparing = progressVal === 0 && (item.speed === '0 KB/s' || !item.speed); 
-
-                                        let displayProgress = isProcessing ? (item.fakeProgress || 0) : progressVal;
-                                        let statusText = `ডাউনলোড হচ্ছে... ${displayProgress}%`;
-                                        let speedText = `স্পিড: ${item.speed || '0 KB/s'} • বাকি: ${item.eta || '--:--'}`;
-                                        let barColor = '#00BFA5';
-
-                                        if (isProcessing) {
-                                            statusText = `ফাইনাল প্রসেসিং... ${displayProgress}%`;
-                                            speedText = "ভিডিও এবং অডিও একসাথে যুক্ত করা হচ্ছে...";
-                                            barColor = '#FFD700'; 
-                                        }
-
                                         return (
                                             <View key={item.id} style={[styles.activeCard, { overflow: 'hidden' }]}>
-
-                                                {isPreparing && <ShimmerOverlay />}
-
                                                 {item.type === 'audio' ? (
                                                     <View style={styles.splitThumbContainer}>
                                                         <Image source={{ uri: item.thumbnail }} style={styles.halfThumb} />
@@ -268,10 +301,10 @@ export default function GlobalDownloadManager() {
 
                                                 <View style={styles.info}>
                                                     <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
-                                                    <Text style={[styles.metaSpeed, isProcessing && {color: '#FFD700'}]}>{isPreparing ? 'সার্ভারের সাথে কানেক্ট করা হচ্ছে...' : speedText}</Text>
-                                                    <Text style={[styles.metaPercentage, isProcessing && {color: '#FFD700'}]}>{isPreparing ? 'লিংক প্রস্তুত হচ্ছে...' : statusText}</Text>
+                                                    <Text style={styles.metaSpeed}>স্পিড: {item.speed} • বাকি: {item.eta}</Text>
+                                                    <Text style={styles.metaPercentage}>ডাউনলোড হচ্ছে... {item.progress}%</Text>
                                                     <View style={styles.progressBarBg}>
-                                                        <View style={[styles.progressBarFill, { width: `${displayProgress}%`, backgroundColor: barColor }]} />
+                                                        <View style={[styles.progressBarFill, { width: `${item.progress}%`, backgroundColor: '#00BFA5' }]} />
                                                     </View>
                                                 </View>
                                                 <TouchableOpacity style={[styles.cancelBtn, {zIndex: 20}]} onPress={() => cancelActiveDownload(item.id)}>
