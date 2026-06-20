@@ -78,7 +78,13 @@ export default function GlobalDownloadManager() {
                 const data = await res.json();
                 const active = data.activeDownloads || {};
 
-                const currentActiveIds = Object.keys(active).filter(k => active[k].status !== 'error' && active[k].status !== 'completed');
+                const currentActiveIds = Object.keys(active).filter(k => {
+                    const ai = active[k];
+                    const progressVal = parseFloat(ai.progress) || 0;
+                    if (ai.status === 'error' || ai.status === 'completed') return false;
+                    if (progressVal >= 100) return false; // treat 100% as completed client-side
+                    return true;
+                });
                 setActiveCount(currentActiveIds.length);
 
                 let hasNewId = false;
