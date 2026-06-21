@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, SafeAreaView
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import * as FileSystem from 'expo-file-system'; // 🚨 নেটিভ ডাউনলোডার ইমপোর্ট করা হলো
+import * as FileSystem from 'expo-file-system'; // 🚨 নেটিভ ডাউনলোডার
 
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
@@ -31,8 +31,6 @@ export default function GlobalDownloadManager() {
     const [isBadgeVisible, setIsBadgeVisible] = useState(false);
     
     const pan = useRef(new Animated.ValueXY({ x: 20, y: SCREEN_HEIGHT - 150 })).current;
-    
-    // ব্যাকগ্রাউন্ড ডাউনলোড কন্ট্রোল করার জন্য Ref
     const activeDownloadsRef = useRef({}); 
     const lastProgressTimeRef = useRef({}); 
     const lastDownloadedBytesRef = useRef({});
@@ -50,13 +48,11 @@ export default function GlobalDownloadManager() {
             setIsScreenVisible(true); loadDownloads();
         });
 
-        // 🚨 নেটিভ ডাউনলোড সিগন্যাল রিসিভ করা হচ্ছে (সার্ভারের বদলে)
         const startDownloadEvent = DeviceEventEmitter.addListener('startNativeDownload', async (data) => {
             const fileExt = data.ext || 'mp4';
             const safeTitle = data.title.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
             const fileUri = `${FileSystem.documentDirectory}${safeTitle}_${data.id}.${fileExt}`;
 
-            // UI-তে ইনস্ট্যান্ট দেখানো হচ্ছে
             setDownloads(prev => [{
                 id: data.id, videoId: data.videoId, title: data.title, thumbnail: data.thumbnail,
                 quality: data.quality, type: data.type, date: Date.now(),
@@ -70,17 +66,12 @@ export default function GlobalDownloadManager() {
             lastProgressTimeRef.current[data.id] = Date.now();
             lastDownloadedBytesRef.current[data.id] = 0;
 
-            // 🚨 আসল ম্যাজিক: এক্সপো ফাইল সিস্টেম দিয়ে ডাউনলোড
             const downloadResumable = FileSystem.createDownloadResumable(
-                data.url,
-                fileUri,
-                {},
-                (downloadProgress) => {
+                data.url, fileUri, {}, (downloadProgress) => {
                     const progress = (downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite) * 100;
                     const now = Date.now();
                     const timeDiff = (now - lastProgressTimeRef.current[data.id]) / 1000; 
 
-                    // প্রতি ১ সেকেন্ডে স্পিড এবং ETA আপডেট
                     if (timeDiff >= 1) { 
                         const bytesDiff = downloadProgress.totalBytesWritten - lastDownloadedBytesRef.current[data.id];
                         const speedKBs = (bytesDiff / 1024 / timeDiff).toFixed(2);
@@ -109,7 +100,6 @@ export default function GlobalDownloadManager() {
 
             try {
                 const { uri } = await downloadResumable.downloadAsync();
-                // 🚨 ডাউনলোড সফল হলে সেভ করা হচ্ছে
                 setDownloads(prev => {
                     const newList = prev.map(item =>
                         item.id === data.id ? { ...item, progress: '100', isCompleted: true, localUri: uri, speed: 'Completed', eta: '' } : item
@@ -119,10 +109,7 @@ export default function GlobalDownloadManager() {
                 });
                 delete activeDownloadsRef.current[data.id];
             } catch (e) {
-                // এরর বা ক্যানসেল
-                setDownloads(prev => prev.map(item =>
-                    item.id === data.id ? { ...item, isError: true, speed: 'Failed/Cancelled', eta: '' } : item
-                ));
+                setDownloads(prev => prev.map(item => item.id === data.id ? { ...item, isError: true, speed: 'Failed', eta: '' } : item));
                 delete activeDownloadsRef.current[data.id];
             }
         });
@@ -130,15 +117,14 @@ export default function GlobalDownloadManager() {
         return () => { openEvent.remove(); startDownloadEvent.remove(); };
     }, []);
 
-    const panResponder = useRef(
-        PanResponder.create({
+    const panResponder = useRef(PanResponder.create({
             onStartShouldSetPanResponder: () => false,
             onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5,
             onPanResponderGrant: () => { pan.setOffset({ x: pan.x._value, y: pan.y._value }); pan.setValue({ x: 0, y: 0 }); },
             onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
             onPanResponderRelease: (_, gestureState) => {
                 pan.flattenOffset();
-                if (pan.x._value < -20 || pan.x._value > SCREEN_WIDTH - BADGE_SIZE + 20 || pan.y._value < -20 || pan.y._value > SCREEN_HEIGHT - BADGE_SIZE + 20 || Math.abs(gestureState.vx) > 1.5 || Math.abs(gestureState.vy) > 1.5) {
+                if (pan.x._value < -20 || pan.x._value > SCREEN_WIDTH - BADGE_SIZE + 20 || pan.y._value < -20 || pan.y._value > SCREEN_HEIGHT - BADGE_SIZE + 20) {
                     setIsBadgeVisible(false); 
                 } else {
                     let safeX = pan.x._value < 0 ? 10 : (pan.x._value > SCREEN_WIDTH - BADGE_SIZE ? SCREEN_WIDTH - BADGE_SIZE - 10 : pan.x._value);
@@ -146,8 +132,7 @@ export default function GlobalDownloadManager() {
                     Animated.spring(pan, { toValue: { x: safeX, y: safeY }, friction: 5, useNativeDriver: false }).start();
                 }
             }
-        })
-    ).current;
+    })).current;
 
     const cancelActiveDownload = async (id) => {
         Alert.alert("Cancel Download", "আপনি কি এই চলমান ডাউনলোডটি বাতিল করতে চান?", [
