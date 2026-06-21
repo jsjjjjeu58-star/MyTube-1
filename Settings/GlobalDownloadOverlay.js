@@ -1,11 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, DeviceEventEmitter, Alert, NativeModules } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Image, DeviceEventEmitter, Alert, NativeModules } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
-
-// 🚨 লজিক প্রসেস করার জন্য আমাদের তৈরি করা ফাইলটি ইমপোর্ট করা হলো
-import { processExtractedData } from '../VideoProcessor'; 
+import { processExtractedData } from '../VideoProcessor'; // 🚨 লজিক প্রসেসর যুক্ত করা হয়েছে
 
 export default function GlobalDownloadOverlay() {
   const { isDarkMode } = useTheme();
@@ -33,14 +31,11 @@ export default function GlobalDownloadOverlay() {
 
   const removeRequest = (id) => setDownloadRequests(prev => prev.filter(r => r.id !== id));
 
+  // 🚨 নেটিভ ইঞ্জিন দিয়ে লিংক বের করা হচ্ছে
   const fetchDownloadLinks = async (id, videoId, type = 'video') => {
     try {
       const targetUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      
-      // 🚨 লোকাল সার্ভারের বদলে সরাসরি নেটিভ ইঞ্জিন কল করা হচ্ছে
       const rawJsonString = await NativeModules.YtDlpModule.extractVideoInfo(targetUrl);
-      
-      // 🚨 VideoProcessor দিয়ে কাঁচা ডেটাকে সুন্দর এবং সাজানো হচ্ছে
       const data = processExtractedData(rawJsonString, type === 'audio' ? 'audio' : 'download');
 
       setDownloadRequests(prev => prev.map(r => r.id === id ? { 
@@ -48,7 +43,6 @@ export default function GlobalDownloadOverlay() {
           downloadLinks: (type === 'audio' ? data.availableAudio : data.availableLinks) || [], 
           step: 'list' 
       } : r));
-
     } catch (e) {
       console.error("Extraction Error:", e);
       setDownloadRequests(prev => prev.map(r => r.id === id ? { ...r, downloadLinks: [], step: 'list' } : r));
@@ -91,18 +85,17 @@ export default function GlobalDownloadOverlay() {
       const { videoData, downloadType } = req;
       const downloadId = Date.now().toString();
 
-      // 🚨 সার্ভারে API কলের বদলে আমরা সরাসরি Download Manager-কে ইভেন্ট/সিগন্যাল পাঠাচ্ছি
+      // 🚨 সার্ভারে কলের বদলে Download Manager-কে সিগন্যাল পাঠানো হচ্ছে
       DeviceEventEmitter.emit('startNativeDownload', {
           id: downloadId,
           videoId: videoData.videoId,
           title: videoData.title || 'Unknown Video',
           thumbnail: videoData.thumbnail || `https://i.ytimg.com/vi/${videoData.videoId}/hqdefault.jpg`,
-          url: item.url, // 👈 yt-dlp থেকে বের করা ডাইরেক্ট ডাউনলোড লিংক
+          url: item.url,
           quality: item.quality,
           type: downloadType,
           ext: item.ext || (downloadType === 'video' ? 'mp4' : 'm4a')
       });
-
     } catch (e) {
       Alert.alert('Error', 'ডাউনলোড শুরু করতে সমস্যা হচ্ছে।');
     } finally {
