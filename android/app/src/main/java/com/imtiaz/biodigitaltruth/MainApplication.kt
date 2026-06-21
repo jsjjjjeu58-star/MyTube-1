@@ -2,7 +2,6 @@ package com.imtiaz.biodigitaltruth
 
 import android.app.Application
 import android.content.res.Configuration
-import android.util.Log
 
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
@@ -24,7 +23,6 @@ class MainApplication : Application(), ReactApplication {
       object : DefaultReactNativeHost(this) {
         override fun getPackages(): List<ReactPackage> =
             PackageList(this).packages.apply {
-              // কাস্টম মডিউল প্যাকেজ
               add(YtDlpPackage())
             }
 
@@ -40,9 +38,6 @@ class MainApplication : Application(), ReactApplication {
   override fun onCreate() {
     super.onCreate()
     
-    // 🚨 App Startup ফাস্ট করার জন্য ইঞ্জিন ইনিশিয়ালাইজেশন এখান থেকে মুছে ফেলা হয়েছে! 
-    // এটি এখন সরাসরি YtDlpModule থেকে ব্যাকগ্রাউন্ডে চালু হবে।
-
     DefaultNewArchitectureEntryPoint.releaseLevel = try {
       ReleaseLevel.valueOf(BuildConfig.REACT_NATIVE_RELEASE_LEVEL.uppercase())
     } catch (e: IllegalArgumentException) {
