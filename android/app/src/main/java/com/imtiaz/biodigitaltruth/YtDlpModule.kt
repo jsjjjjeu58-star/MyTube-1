@@ -3,7 +3,7 @@ package com.imtiaz.biodigitaltruth
 import android.app.Application
 import com.facebook.react.bridge.*
 import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.ffmpeg.FFmpeg // 👈 FFmpeg ইমপোর্ট করা হলো
+import com.yausername.ffmpeg.FFmpeg 
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -15,17 +15,14 @@ class YtDlpModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         return "YtDlpModule"
     }
 
-    // 🚨 ১. ভিডিও ডেটা বের করার ফাংশন
     @ReactMethod
     fun extractVideoInfo(videoUrl: String, promise: Promise) {
-        // ব্যাকগ্রাউন্ড থ্রেডে কাজ হবে যেন UI না আটকায়
         GlobalScope.launch(Dispatchers.IO) {
             try {
-                // 🚨 জাস্ট-ইন-টাইম ইনিশিয়ালাইজেশন
                 try {
                     val app = reactApplicationContext.applicationContext as Application
                     YoutubeDL.getInstance().init(app)
-                    FFmpeg.getInstance().init(app) // 👈 FFmpeg ও একসাথে চালু হবে
+                    FFmpeg.getInstance().init(app) 
                 } catch (e: Exception) {
                     promise.reject("INIT_ERROR", "ইঞ্জিন চালু হতে ব্যর্থ হয়েছে: " + e.localizedMessage)
                     return@launch
@@ -56,16 +53,16 @@ class YtDlpModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         }
     }
 
-    // 🚨 ২. ইঞ্জিন আপডেট করার জাদুকরী ফাংশন
-    // ইউটিউব তাদের কোড পরিবর্তন করলে এই ফাংশনটি কল করলেই ইঞ্জিন নিজে নিজে ঠিক হয়ে যাবে!
     @ReactMethod
     fun updateEngine(promise: Promise) {
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 val app = reactApplicationContext.applicationContext as Application
                 YoutubeDL.getInstance().init(app)
-                val status = YoutubeDL.getInstance().updateYoutubeDL(app, YoutubeDL.UpdateChannel.STABLE)
-                promise.resolve(status?.name ?: "UPDATED")
+                
+                // 🚨 0.14.0 ভার্সনের জন্য সঠিক আপডেট কমান্ড (UpdateChannel রিমুভ করা হয়েছে)
+                YoutubeDL.getInstance().updateYoutubeDL(app)
+                promise.resolve("UPDATED_SUCCESSFULLY")
             } catch (e: Exception) {
                 promise.reject("UPDATE_ERROR", e.message)
             }
