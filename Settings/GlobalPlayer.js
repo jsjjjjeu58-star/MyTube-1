@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Image, Platform, ScrollView } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Image, Platform, ScrollView, NativeModules } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video'; 
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio'; 
 import { Ionicons } from '@expo/vector-icons';
@@ -11,12 +11,15 @@ import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as FileSystem from 'expo-file-system/legacy'; 
+import * as FileSystem from 'expo-file-system'; 
 import { decode } from 'base64-arraybuffer'; 
 import * as jpeg from 'jpeg-js';
 import { Asset } from 'expo-asset'; 
 import FaceDetection from '@react-native-ml-kit/face-detection';
 import { loadTensorflowModel } from 'react-native-fast-tflite';
+
+// 🚨 লজিক প্রসেসর যুক্ত করা হয়েছে
+import { processExtractedData } from '../VideoProcessor';
 
 LogBox.ignoreLogs(['Video component', 'expo-audio', 'expo-video']);
 
@@ -27,8 +30,6 @@ const PORTRAIT_HEIGHT = Math.max(windowDim.width, windowDim.height);
 const PLAYER_HEIGHT = (PORTRAIT_WIDTH * 9) / 16;
 const MINI_WIDTH = PORTRAIT_WIDTH * 0.45;
 const MINI_HEIGHT = (MINI_WIDTH * 9) / 16;
-
-const MY_API_SERVER = "http://127.0.0.1:10000"; 
 
 const safeSeek = (p, targetSec) => {
     if (!p) return;
@@ -166,15 +167,12 @@ export default function GlobalPlayer() {
           if (!isEnabled) {
               setIsBlurredUI(false);
               isBlurredRef.current = false;
-          } else {
-              startAiPipe(parseFloat(targetScanSecRef.current.toFixed(1)));
           }
       });
 
       return () => { targetSub.remove(); scanSub.remove(); };
   }, []);
 
-  // 🚨 [FIX] - doNotMix সেটিং লক স্ক্রিন মিডিয়া ইন্টিগ্রেশনের জন্য বাধ্যতামূলক
   useEffect(() => {
     const setupAudio = async () => {
       try {
@@ -183,8 +181,8 @@ export default function GlobalPlayer() {
           playsInSilentModeIOS: true,
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
-          interruptionModeIOS: 'doNotMix', // 👈 [IMPORTANT FOR LOCKSCREEN]
-          interruptionModeAndroid: 'doNotMix', // 👈 [IMPORTANT FOR LOCKSCREEN]
+          interruptionModeIOS: 'doNotMix', 
+          interruptionModeAndroid: 'doNotMix', 
         });
       } catch (e) {
           console.log("Audio Setup Error:", e);
@@ -196,7 +194,7 @@ export default function GlobalPlayer() {
   const safeReleaseAudio = () => {
       if (syncAudioRef.current) {
           try { 
-              syncAudioRef.current.clearLockScreenControls(); // 👈 লক স্ক্রিন থেকে রিমুভ
+              syncAudioRef.current.clearLockScreenControls(); 
               syncAudioRef.current.release(); 
           } catch(e) {}
           syncAudioRef.current = null;
@@ -222,8 +220,6 @@ export default function GlobalPlayer() {
             if (!isAudioModeRef.current) {
                 if (player && player.playing) player.pause();
                 if (syncAudioRef.current && syncAudioRef.current.playing) syncAudioRef.current.pause();
-            } else {
-                console.log("Background Audio Mode Active.");
             }
         }
     });
@@ -293,18 +289,9 @@ export default function GlobalPlayer() {
     } catch (error) {}
   };
 
-  const startAiPipe = async (time) => {
-      if (!lowStreamUrlRef.current || !aiScanEnabledRef.current) return;
-      try {
-          await fetch(`${MY_API_SERVER}/api/start-ai-pipe?url=${encodeURIComponent(lowStreamUrlRef.current)}&time=${time}&interval=${scanIntervalRef.current}`);
-      } catch (e) {}
-  };
-
   const seekTo = async (newTime) => {
       setCurrentTime(newTime); 
       targetScanSecRef.current = parseFloat(newTime.toFixed(1));
-
-      if (aiScanEnabledRef.current) startAiPipe(targetScanSecRef.current);
 
       try {
           if (isAudioModeRef.current) {
@@ -316,7 +303,6 @@ export default function GlobalPlayer() {
       } catch (error) { }
   };
 
-  // 🚨 [NEW] - লক স্ক্রিন উইজেট আপডেট ট্রিগার সিস্টেম
   const updateLockScreenControls = (audioPlayer, title, channel, artworkUrl) => {
       if (!audioPlayer || !audioPlayer.setActiveForLockScreen) return;
       try {
@@ -325,7 +311,7 @@ export default function GlobalPlayer() {
               artist: channel || 'MyTube Stream',
               artwork: artworkUrl || `https://i.ytimg.com/vi/${currentVideoIdRef.current}/hqdefault.jpg`
           }, {
-              showPlayPauseControls: true, // 👈 নোটিফিকেশনে প্লে পজ থাকবে
+              showPlayPauseControls: true, 
               showSkipForwardBackwardControls: false,
               showNextPreviousControls: false
           });
@@ -391,13 +377,14 @@ export default function GlobalPlayer() {
               let audioUrlToPlay = cachedAudioUrlRef.current;
               if (!audioUrlToPlay) {
                   try {
-                      const res = await fetch(`${MY_API_SERVER}/api/extract?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${currentVideoIdRef.current}`)}&action=play&type=audio`);
-                      const json = await res.json();
-                      if (json.success && (json.audioUrl || json.url)) {
+                      // 🚨 নেটিভ ইঞ্জিন থেকে অডিও বের করা হচ্ছে
+                      const rawJsonString = await NativeModules.YtDlpModule.extractVideoInfo(`https://www.youtube.com/watch?v=${currentVideoIdRef.current}`);
+                      const json = processExtractedData(rawJsonString, 'play', 720);
+                      if (json && (json.audioUrl || json.url)) {
                           audioUrlToPlay = json.audioUrl || json.url;
                           cachedAudioUrlRef.current = audioUrlToPlay; 
                       }
-                  } catch (e) {}
+                  } catch (e) { console.log(e); }
               }
               if (audioUrlToPlay) {
                   safeReleaseAudio();
@@ -406,7 +393,6 @@ export default function GlobalPlayer() {
                   safeSetRate(syncAudioRef.current, currentSpeed); 
                   syncAudioRef.current.play();
 
-                  // 🚨 নোটিফিকেশন বার রেজিস্টার করা হলো
                   updateLockScreenControls(syncAudioRef.current, videoData?.title, videoData?.channel, videoData?.thumbnail);
               }
           }
@@ -417,7 +403,7 @@ export default function GlobalPlayer() {
               if (streamModeRef.current !== 'separate') safeReleaseAudio();
               else {
                   syncAudioRef.current.pause();
-                  syncAudioRef.current.clearLockScreenControls(); // 👈 মোড পরিবর্তন হলে ওল্ড লকস্ক্রিন ক্লিয়ার
+                  syncAudioRef.current.clearLockScreenControls(); 
               }
           }
           resumeTimeRef.current = resumeVideoTime;
@@ -444,6 +430,7 @@ export default function GlobalPlayer() {
       return () => clearTimeout(timeoutId);
   }, [videoSource, isAudioMode]);
 
+  // 🚨 নেটিভ ইঞ্জিন থেকে প্লেয়ারের ভিডিও লিংক আনা হচ্ছে
   const fetchStreamUrl = async (vidId, targetQuality, fetchId) => {
     try {
       const qStr = targetQuality.toString().toUpperCase();
@@ -453,26 +440,22 @@ export default function GlobalPlayer() {
       else if (qStr.includes('2K') || qStr.includes('1440')) reqQ = 1440;
       else reqQ = parseInt(qStr.replace(/\D/g, '')) || 720;
 
-      const res = await fetch(`${MY_API_SERVER}/api/extract?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${vidId}`)}&quality=${reqQ}&action=play`);
-      const json = await res.json();
+      const targetUrl = `https://www.youtube.com/watch?v=${vidId}`;
+      const rawJsonString = await NativeModules.YtDlpModule.extractVideoInfo(targetUrl);
+      const json = processExtractedData(rawJsonString, 'play', reqQ);
 
       if (fetchId !== fetchIdRef.current) return;
 
-      if (json.success && json.url) {
+      if (json && json.url) {
           if (json.lowQualityUrl) {
               setLowStreamUrl(json.lowQualityUrl); 
               lowStreamUrlRef.current = json.lowQualityUrl;
-              if (aiScanEnabledRef.current) startAiPipe(0);
-          }
-
-          const resQ = parseInt(json.quality) || 720;
-          if (reqQ > resQ) {
-              setFallbackData({ reqQ, resQ, data: json, message: `Requested ${reqQ}p is not available. Play ${resQ}p instead?` });
-              return;
           }
           startPlayback(json);
       }
-    } catch(e) {}
+    } catch(e) {
+        console.error("Player Stream Error:", e);
+    }
   };
 
   const startPlayback = async (json) => {
@@ -595,28 +578,8 @@ export default function GlobalPlayer() {
 
               isAiProcessingRef.current = true;
               try {
-                  const response = await fetch(`${MY_API_SERVER}/api/get-pipe-frame?time=${targetSec}`);
-                  const data = await response.json();
-
-                  if (data.success && data.frameUrl) {
-                      const tempLocalPath = `${FileSystem.cacheDirectory}temp_frame_${targetSec}.jpg`;
-                      await FileSystem.downloadAsync(data.frameUrl, tempLocalPath);
-
-                      const result = await processFrameForGender(tempLocalPath);
-                      aiDataMapRef.current[targetSec] = { gender: result, size: 0 };
-
-                      setFrameList(prev => {
-                          const updated = [...prev, { time: targetSec, url: data.frameUrl, gender: result }];
-                          return updated.sort((a, b) => a.time - b.time);
-                      });
-
-                      await FileSystem.deleteAsync(tempLocalPath, { idempotent: true });
-                      targetScanSecRef.current = parseFloat((targetSec + scanIntervalRef.current).toFixed(1));
-                  } else if (data.status === 'processing') {
-                      await new Promise(r => setTimeout(r, 200));
-                  } else {
-                      await new Promise(r => setTimeout(r, 500));
-                  }
+                  await new Promise(r => setTimeout(r, 2000));
+                  targetScanSecRef.current = parseFloat((targetSec + scanIntervalRef.current).toFixed(1));
               } catch(e) {
               } finally {
                   isAiProcessingRef.current = false;
@@ -675,7 +638,6 @@ export default function GlobalPlayer() {
         if (isSyncingRef.current) return; 
 
         if (isAudioMode) {
-            // 🚨 অডিও মোডে থাকাকালীন ইউজার লকস্ক্রিন থেকে প্লে/পজ করলে তা UI-তে সিঙ্ক করবে
             if (syncAudioRef.current) {
                 setIsPlayingUI(syncAudioRef.current.playing || false);
                 setCurrentTime(syncAudioRef.current.currentTime);
@@ -979,8 +941,7 @@ export default function GlobalPlayer() {
                     <TouchableOpacity style={styles.menuItem} onPress={() => {
                         const newVal = !aiScanEnabled;
                         setAiScanEnabled(newVal); aiScanEnabledRef.current = newVal;
-                        if (newVal) startAiPipe(parseFloat(currentTime.toFixed(1)));
-                        else { setIsBlurredUI(false); isBlurredRef.current = false; }
+                        if (!newVal) { setIsBlurredUI(false); isBlurredRef.current = false; }
                         setShowAiMenu(false);
                     }}>
                         <Ionicons name={aiScanEnabled ? "scan" : "scan-outline"} size={20} color={aiScanEnabled ? "#00FF00" : "#FFF"} style={styles.menuIcon} />
@@ -1001,8 +962,7 @@ export default function GlobalPlayer() {
                             <TouchableOpacity key={t} style={styles.menuItem} onPress={async () => {
                                 setScanInterval(t); scanIntervalRef.current = t;
                                 await AsyncStorage.setItem('ai_interval', t.toString());
-                                        setShowAiTimeMenu(false); targetScanSecRef.current = parseFloat(currentTime.toFixed(1));
-                                if (aiScanEnabledRef.current) startAiPipe(targetScanSecRef.current);
+                                setShowAiTimeMenu(false); targetScanSecRef.current = parseFloat(currentTime.toFixed(1));
                             }}>
                                 <Text style={[styles.menuText, scanInterval === t && {color: '#FF0000', fontWeight: 'bold'}]}>{t} Seconds</Text>
                             </TouchableOpacity>
