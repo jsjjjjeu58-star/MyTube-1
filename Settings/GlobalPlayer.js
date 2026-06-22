@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Image, Platform, ScrollView, NativeModules } from 'react-native';
+import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Image, Platform, ScrollView, NativeModules, Alert } from 'react-native'; // 🚨 Alert ইমপোর্ট করা হয়েছে
 import { useVideoPlayer, VideoView } from 'expo-video'; 
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio'; 
 import { Ionicons } from '@expo/vector-icons';
@@ -458,6 +458,20 @@ export default function GlobalPlayer() {
     }
   };
 
+  // 🚨 ইউটিউব ইঞ্জিন আপডেট করার নতুন ফাংশন
+  const updateYoutubeEngine = async () => {
+      try {
+          Alert.alert("আপডেট হচ্ছে...", "ইউটিউব ইঞ্জিন আপডেট হচ্ছে। দয়া করে কিছুক্ষণ অপেক্ষা করুন, ইন্টারনেট স্পিডের ওপর ভিত্তি করে ১-২ মিনিট সময় লাগতে পারে।");
+          
+          // নেটিভ ইঞ্জিনকে আপডেট করার কমান্ড দেওয়া হচ্ছে
+          const result = await NativeModules.YtDlpModule.updateEngine();
+          
+          Alert.alert("সফল!", "ইঞ্জিন সফলভাবে লেটেস্ট ভার্সনে আপডেট হয়েছে। এখন সব ভিডিও আবার আগের মতো কাজ করবে।");
+      } catch (error) {
+          Alert.alert("Error", "আপডেট ফেইল হয়েছে: " + error.message);
+      }
+  };
+
   const startPlayback = async (json) => {
     setStreamMode(json.streamType || 'combined');
     streamModeRef.current = json.streamType || 'combined';
@@ -910,6 +924,13 @@ export default function GlobalPlayer() {
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettingsMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
                     <Text style={styles.modalTitle}>Player Settings</Text>
+                    
+                    {/* 🚨 নতুন আপডেট বাটন 🚨 */}
+                    <TouchableOpacity style={styles.menuItem} onPress={() => { setShowSettingsMenu(false); updateYoutubeEngine(); }}>
+                        <Ionicons name="cloud-download-outline" size={20} color="#00BFA5" style={styles.menuIcon} />
+                        <Text style={[styles.menuText, { color: '#00BFA5' }]}>Update Engine (Fix Error)</Text>
+                    </TouchableOpacity>
+
                     <TouchableOpacity style={styles.menuItem} onPress={() => { setShowSettingsMenu(false); setShowAiMenu(true); }}>
                         <Ionicons name="hardware-chip-outline" size={20} color="#00FF00" style={styles.menuIcon} />
                         <Text style={[styles.menuText, { color: '#00FF00' }]}>System AI Setting</Text>
