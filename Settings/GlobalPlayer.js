@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Image, Platform, ScrollView, NativeModules, Alert } from 'react-native'; // 🚨 Alert ইমপোর্ট করা হয়েছে
+import { View, StyleSheet, Dimensions, Animated, PanResponder, TouchableOpacity, Text, LogBox, Modal, BackHandler, Share, TouchableWithoutFeedback, Linking, AppState, Image, Platform, ScrollView, NativeModules, Alert } from 'react-native'; 
 import { useVideoPlayer, VideoView } from 'expo-video'; 
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio'; 
 import { Ionicons } from '@expo/vector-icons';
@@ -18,7 +18,7 @@ import { Asset } from 'expo-asset';
 import FaceDetection from '@react-native-ml-kit/face-detection';
 import { loadTensorflowModel } from 'react-native-fast-tflite';
 
-// 🚨 লজিক প্রসেসর যুক্ত করা হয়েছে
+// লজিক প্রসেসর যুক্ত করা হয়েছে
 import { processExtractedData } from '../VideoProcessor';
 
 LogBox.ignoreLogs(['Video component', 'expo-audio', 'expo-video']);
@@ -377,14 +377,28 @@ export default function GlobalPlayer() {
               let audioUrlToPlay = cachedAudioUrlRef.current;
               if (!audioUrlToPlay) {
                   try {
-                      // 🚨 নেটিভ ইঞ্জিন থেকে অডিও বের করা হচ্ছে
+                      console.log(`[DEBUG AUDIO MODE] Extracting audio for URL ID: ${currentVideoIdRef.current}`);
                       const rawJsonString = await NativeModules.YtDlpModule.extractVideoInfo(`https://www.youtube.com/watch?v=${currentVideoIdRef.current}`);
+                      
+                      console.log("================ [DEBUG AUDIO MODE: RAW JSON FROM ENGINE] ================");
+                      console.log(rawJsonString);
+                      console.log("=========================================================================");
+
                       const json = processExtractedData(rawJsonString, 'play', 720);
+                      
+                      console.log("================ [DEBUG AUDIO MODE: PROCESSED DATA] ================");
+                      console.log(JSON.stringify(json, null, 2));
+                      console.log("====================================================================");
+
                       if (json && (json.audioUrl || json.url)) {
                           audioUrlToPlay = json.audioUrl || json.url;
                           cachedAudioUrlRef.current = audioUrlToPlay; 
                       }
-                  } catch (e) { console.log(e); }
+                  } catch (e) { 
+                      console.error("============== [DEBUG AUDIO MODE: EXTRACTION ERROR] ==============");
+                      console.error(e); 
+                      console.error("==================================================================");
+                  }
               }
               if (audioUrlToPlay) {
                   safeReleaseAudio();
@@ -432,6 +446,7 @@ export default function GlobalPlayer() {
 
   // 🚨 নেটিভ ইঞ্জিন থেকে প্লেয়ারের ভিডিও লিংক আনা হচ্ছে
   const fetchStreamUrl = async (vidId, targetQuality, fetchId) => {
+    console.log(`\n============ 🚀 [START fetchStreamUrl] ID: ${vidId} | Requested Quality: ${targetQuality} ============`);
     try {
       const qStr = targetQuality.toString().toUpperCase();
       let reqQ = 720;
@@ -441,10 +456,24 @@ export default function GlobalPlayer() {
       else reqQ = parseInt(qStr.replace(/\D/g, '')) || 720;
 
       const targetUrl = `https://www.youtube.com/watch?v=${vidId}`;
-      const rawJsonString = await NativeModules.YtDlpModule.extractVideoInfo(targetUrl);
-      const json = processExtractedData(rawJsonString, 'play', reqQ);
+      console.log(`[DEBUG] Requesting Native Module extractVideoInfo for URL: ${targetUrl}`);
 
-      if (fetchId !== fetchIdRef.current) return;
+      // ১. নেটিভ ইঞ্জিন থেকে পাওয়া একদম কাঁচা স্ট্রিং সম্পূর্ণ প্রিন্ট করা
+      const rawJsonString = await NativeModules.YtDlpModule.extractVideoInfo(targetUrl);
+      console.log("\n================ 📦 [DEBUG 1: RAW JSON STRING FROM NATIVE ENGINE] ================");
+      console.log(rawJsonString);
+      console.log("==================================================================================\n");
+
+      // ২. ভিডিও প্রসেসর দ্বারা ফিল্টার করার পর কী তথ্য বের হলো তা সম্পূর্ণ প্রিন্ট করা
+      const json = processExtractedData(rawJsonString, 'play', reqQ);
+      console.log("================ 📋 [DEBUG 2: PROCESSED JSON OBJECT FOR PLAYER] ================");
+      console.log(JSON.stringify(json, null, 2));
+      console.log("================================================================================\n");
+
+      if (fetchId !== fetchIdRef.current) {
+          console.log(`[DEBUG WARNING] fetchId mismatch! Active ID: ${fetchIdRef.current}, current task ID: ${fetchId}. Aborting stream.`);
+          return;
+      }
 
       if (json && json.url) {
           if (json.lowQualityUrl) {
@@ -452,27 +481,37 @@ export default function GlobalPlayer() {
               lowStreamUrlRef.current = json.lowQualityUrl;
           }
           startPlayback(json);
+      } else {
+          console.log("❌ [DEBUG ERROR] Extraction success but 'json.url' is null or undefined!");
       }
     } catch(e) {
-        console.error("Player Stream Error:", e);
+        console.error("\n================ ❌ [DEBUG 3: CRITICAL EXCEPTION IN fetchStreamUrl] ================");
+        console.error(e);
+        console.error("====================================================================================\n");
     }
   };
 
-  // 🚨 ইউটিউব ইঞ্জিন আপডেট করার নতুন ফাংশন
+  // ইউটিউব ইঞ্জিন আপডেট করার ফাংশন
   const updateYoutubeEngine = async () => {
       try {
           Alert.alert("আপডেট হচ্ছে...", "ইউটিউব ইঞ্জিন আপডেট হচ্ছে। দয়া করে কিছুক্ষণ অপেক্ষা করুন, ইন্টারনেট স্পিডের ওপর ভিত্তি করে ১-২ মিনিট সময় লাগতে পারে।");
-          
-          // নেটিভ ইঞ্জিনকে আপডেট করার কমান্ড দেওয়া হচ্ছে
+          console.log("[DEBUG] Native Module updateEngine triggered...");
           const result = await NativeModules.YtDlpModule.updateEngine();
-          
+          console.log(`[DEBUG] updateEngine result: ${result}`);
           Alert.alert("সফল!", "ইঞ্জিন সফলভাবে লেটেস্ট ভার্সনে আপডেট হয়েছে। এখন সব ভিডিও আবার আগের মতো কাজ করবে।");
       } catch (error) {
+          console.error("[DEBUG ERROR] Update Engine failed:", error);
           Alert.alert("Error", "আপডেট ফেইল হয়েছে: " + error.message);
       }
   };
 
   const startPlayback = async (json) => {
+    console.log("\n================ 🎥 [DEBUG 4: STARTING PLAYBACK WITH CONFIGURATION] ================");
+    console.log(`Stream Type: ${json.streamType || 'combined'}`);
+    console.log(`Video Source URL: ${json.url}`);
+    console.log(`Audio Source URL: ${json.audioUrl || 'N/A (Combined Stream)'}`);
+    console.log("====================================================================================\n");
+
     setStreamMode(json.streamType || 'combined');
     streamModeRef.current = json.streamType || 'combined';
     cachedAudioUrlRef.current = json.audioUrl || null; 
@@ -481,6 +520,7 @@ export default function GlobalPlayer() {
     setVideoSource(json.url); 
 
     if (json.audioUrl && streamModeRef.current === 'separate') {
+        console.log(`[DEBUG] Initializing secondary audio player for separate stream...`);
         safeReleaseAudio();
         syncAudioRef.current = createAudioPlayer(json.audioUrl);
         safeSetVolume(syncAudioRef.current, 1.0); 
@@ -924,8 +964,7 @@ export default function GlobalPlayer() {
             <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowSettingsMenu(false)}>
                 <TouchableOpacity activeOpacity={1} style={styles.settingsMenu}>
                     <Text style={styles.modalTitle}>Player Settings</Text>
-                    
-                    {/* 🚨 নতুন আপডেট বাটন 🚨 */}
+
                     <TouchableOpacity style={styles.menuItem} onPress={() => { setShowSettingsMenu(false); updateYoutubeEngine(); }}>
                         <Ionicons name="cloud-download-outline" size={20} color="#00BFA5" style={styles.menuIcon} />
                         <Text style={[styles.menuText, { color: '#00BFA5' }]}>Update Engine (Fix Error)</Text>
