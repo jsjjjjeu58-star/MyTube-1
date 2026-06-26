@@ -5,7 +5,6 @@ import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
-import com.yausername.youtubedl_android.YoutubeDLCallback
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -48,12 +47,8 @@ class YtDlpModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
 
                 sendLogToTerminal("============ ⏳ [ENGINE PROCESSING] Options Added. Executing Command... ============")
 
-                // 🚨 ইঞ্জিনের ভেতরের রিয়েল-টাইম লাইভ লগ ক্যাপচার করার কলব্যাক
-                val callback = YoutubeDLCallback { progress, etaInSeconds, line ->
-                    sendLogToTerminal("📡 [ENGINE LIVE]: $line")
-                }
-
-                val response = YoutubeDL.getInstance().execute(request, "extract_info_process", callback)
+                // 🚨 [FIX] ভুল কলব্যাকটি মুছে ফেলা হলো, এটি এখন কোনো কম্পাইল এরর দেবে না 🚨
+                val response = YoutubeDL.getInstance().execute(request, null, null)
 
                 sendLogToTerminal("============ ✅ [ENGINE SUCCESS] Data Extracted Successfully! ============")
 
